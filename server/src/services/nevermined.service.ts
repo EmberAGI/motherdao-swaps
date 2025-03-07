@@ -1,3 +1,4 @@
+/* eslint-disable no-unused-vars */
 import {
   Payments,
   EnvironmentName,
@@ -322,7 +323,7 @@ export class NeverminedService extends BaseService {
           });
 
           const client = new EmberClient({
-            endpoint: process.env.EMBER_ENDPOINT || "localhost:50051",
+            endpoint: process.env.EMBER_ENDPOINT || "grpc.api.emberai.xyz:50051",
             apiKey: process.env.EMBER_API_KEY,
           });
 
@@ -341,7 +342,7 @@ export class NeverminedService extends BaseService {
           });
 
           console.log(
-            "[NeverminedService] Data fetched: ",
+            "[NeverminedService] Ember swap transaction created: ",
             JSON.stringify(response),
             step.task_id,
             step.step_id
@@ -536,8 +537,9 @@ export class NeverminedService extends BaseService {
     const { data } = await this.client.query.createTask(
       agentDID,
       {
-        query,
-      },
+        query: query,
+        input_query: query,
+      } as { query: string; input_query: string },
       accessConfig,
       taskCallback
     );
@@ -612,8 +614,9 @@ export class NeverminedService extends BaseService {
     const { data } = await this.client.query.createTask(
       agentDID,
       {
-        query,
-      },
+        query: query,
+        input_query: query,
+      } as { query: string; input_query: string },
       accessConfig,
       taskCallback
     );
