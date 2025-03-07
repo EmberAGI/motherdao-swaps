@@ -322,7 +322,7 @@ export class NeverminedService extends BaseService {
           });
 
           const client = new EmberClient({
-            endpoint: "localhost:50051",
+            endpoint: process.env.EMBER_ENDPOINT || "localhost:50051",
             apiKey: process.env.EMBER_API_KEY,
           });
 
