@@ -351,6 +351,7 @@ export class NeverminedService extends BaseService {
                 taskId: step.task_id,
                 stepId: step.step_id,
                 request: swapTokenRequest,
+                response: response,
               })
             );
 
