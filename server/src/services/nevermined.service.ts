@@ -13,6 +13,7 @@ import { parseUnits } from "ethers";
 import * as path from "path";
 import * as fs from "fs/promises";
 import { AnyType } from "src/utils.js";
+import EmberClient, { OrderType } from "@emberai/sdk-typescript";
 
 //FIXME: Remove once Nevermined SDK is updated
 interface NeverminedStep extends Step {
@@ -265,22 +266,13 @@ export class NeverminedService extends BaseService {
             message: `Step received ${step.name}, creating the additional steps...`,
           });
           console.log("[NeverminedService] Step received ", step);
-          const fetchDataStepId = generateStepId();
-          const encryptDataStepId = generateStepId();
+          const swapStepId = generateStepId();
 
           const steps = [
             {
-              step_id: fetchDataStepId,
+              step_id: swapStepId,
               task_id: step.task_id,
-              predecessor: step.step_id, // "fetchData" follows "init"
-              name: "fetchData",
-              is_last: false,
-            },
-            {
-              step_id: encryptDataStepId,
-              task_id: step.task_id,
-              predecessor: fetchDataStepId, // "encryptData" follows "fetchData"
-              name: "encryptData",
+              name: "swap",
               is_last: true,
             },
           ];
@@ -308,6 +300,56 @@ export class NeverminedService extends BaseService {
             ...step,
             step_status: AgentExecutionStatus.Completed,
             output: step.input_query,
+          });
+          return;
+        }
+
+        case "swap": {
+          const payload = JSON.parse(step.input_query) as {
+            amount: string;
+            from_token: string;
+            from_chain_id: string;
+            to_token: string;
+            to_chain_id: string;
+            sender: string;
+          };
+          await payments.query.logTask({
+            level: "info",
+            task_id: step.task_id,
+            step_id: step.step_id,
+            task_status: AgentExecutionStatus.In_Progress,
+            message: `Data fetched: ${JSON.stringify(payload)}`,
+          });
+
+          const client = new EmberClient({
+            endpoint: "localhost:50051",
+            apiKey: process.env.EMBER_API_KEY,
+          });
+
+          const response = client.swapTokens({
+            type: OrderType.MARKET_BUY,
+            baseToken: {
+              tokenId: payload.from_token,
+              chainId: payload.from_chain_id,
+            },
+            quoteToken: {
+              tokenId: payload.to_token,
+              chainId: payload.to_chain_id,
+            },
+            amount: payload.amount,
+            recipient: payload.sender,
+          });
+
+          console.log(
+            "[NeverminedService] Data fetched: ",
+            JSON.stringify(response),
+            step.task_id,
+            step.step_id
+          );
+          await payments.query.updateStep(step.did, {
+            ...step,
+            step_status: AgentExecutionStatus.Completed,
+            output: JSON.stringify(response),
           });
           return;
         }
