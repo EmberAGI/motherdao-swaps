@@ -323,11 +323,12 @@ export class NeverminedService extends BaseService {
           });
 
           const client = new EmberClient({
-            endpoint: process.env.EMBER_ENDPOINT || "grpc.api.emberai.xyz:50051",
+            endpoint:
+              process.env.EMBER_ENDPOINT || "grpc.api.emberai.xyz:50051",
             apiKey: process.env.EMBER_API_KEY,
           });
 
-          const response = client.swapTokens({
+          const swapTokenRequest = {
             type: OrderType.MARKET_BUY,
             baseToken: {
               tokenId: payload.from_token,
@@ -339,7 +340,23 @@ export class NeverminedService extends BaseService {
             },
             amount: payload.amount,
             recipient: payload.sender,
-          });
+          };
+          const response = await client.swapTokens(swapTokenRequest);
+
+          if (response.status === 2) {
+            console.log(
+              "[NeverminedService] Swap validation failed before transaction creation:",
+              JSON.stringify({
+                status: response.status,
+                taskId: step.task_id,
+                stepId: step.step_id,
+                request: swapTokenRequest,
+              })
+            );
+
+            // early return to avoid transaction creation
+            return;
+          }
 
           console.log(
             "[NeverminedService] Ember swap transaction created: ",
