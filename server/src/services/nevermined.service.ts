@@ -322,6 +322,8 @@ export class NeverminedService extends BaseService {
             message: `Data fetched: ${JSON.stringify(payload)}`,
           });
 
+          console.log("[NeverminedService] EMBER_ENDPOINT: ", process.env.EMBER_ENDPOINT);
+
           const client = new EmberClient({
             endpoint:
               process.env.EMBER_ENDPOINT || "grpc.api.emberai.xyz:50051",
@@ -329,13 +331,13 @@ export class NeverminedService extends BaseService {
           });
 
           const swapTokenRequest = {
-            type: OrderType.MARKET_BUY,
+            orderType: OrderType.MARKET_BUY,
             baseToken: {
-              tokenId: payload.from_token,
+              address: payload.from_token,
               chainId: payload.from_chain_id,
             },
             quoteToken: {
-              tokenId: payload.to_token,
+              address: payload.to_token,
               chainId: payload.to_chain_id,
             },
             amount: payload.amount,
