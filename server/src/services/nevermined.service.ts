@@ -63,8 +63,11 @@ export class NeverminedService extends BaseService {
       this.agentDID = loadedDIDs.agentDID;
     } else {
       console.log("[NeverminedService] No saved DIDs found, creating new ones");
-      this.paymentPlanDID = await this.getPaymentPlanDID();
-      this.agentDID = await this.getAgentDID();
+      this.paymentPlanDID =
+        process.env.NEVERMINED_PAYMENT_PLAN_DID ??
+        (await this.getPaymentPlanDID());
+      this.agentDID =
+        process.env.NEVERMINED_AGENT_DID ?? (await this.getAgentDID());
 
       // Save DIDs to file for persistence
       await this.saveDIDsToFile();

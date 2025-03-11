@@ -3,11 +3,21 @@ import { IService } from "./base.service.js";
 import pathfinder from "mineflayer-pathfinder";
 import { Vec3 } from "vec3";
 import { plugin as collectBlock } from "mineflayer-collectblock";
-import { AnyType } from "src/utils.js";
+import {
+  AnyType,
+  getCollablandApiUrl,
+  getTokenMetadataPath,
+  MintResponse,
+  TokenMetadata,
+} from "../utils.js";
 import { NeverminedService } from "./nevermined.service.js";
-import path from "path";
-import fs from "fs/promises";
+// import path from "path";
+// import fs from "fs/promises";
 import { AgentExecutionStatus } from "@nevermined-io/payments";
+import { getMerchantAgents } from "../utils/Intuition/queries.js";
+import axios, { AxiosResponse, isAxiosError } from "axios";
+import { parse as jsoncParse } from "jsonc-parser";
+import fs from "fs";
 
 const { Movements, goals } = pathfinder;
 
@@ -20,7 +30,6 @@ export class MineflayerService implements IService {
   private isFollowing = false;
   private followInterval: NodeJS.Timeout | null = null;
   private role: string | null = null;
-
   private constructor() {}
 
   static getInstance(): MineflayerService {
@@ -64,24 +73,34 @@ export class MineflayerService implements IService {
 
   private async getNearestMerchantBot() {
     try {
-      // Get the path to the credentials file
-      const dataDir = path.resolve(process.cwd(), "data");
-      const filePath = path.join(dataDir, "nevermined-credentials.json");
+      // Get merchant agents from Intuition
 
-      // Check if file exists
-      try {
-        await fs.access(filePath);
-      } catch (error) {
-        console.log("[Mineflayer] No credentials file found");
-        return null;
-      }
+      console.log("[Mineflayer] Fetching merchant agents from Intuition...");
+      const merchantAgents = await getMerchantAgents();
+      console.log(
+        "[Mineflayer] Found merchant agents in Intuition:",
+        JSON.stringify(merchantAgents)
+      );
+      console.log("pvt key: ", process.env.PRIVATE_KEY);
 
-      // Read and parse file
-      const fileContent = await fs.readFile(filePath, "utf8");
-      const allData = JSON.parse(fileContent);
+      // // Get the path to the credentials file
+      // const dataDir = path.resolve(process.cwd(), "data");
+      // const filePath = path.join(dataDir, "nevermined-credentials.json");
+
+      // // Check if file exists
+      // try {
+      //   await fs.access(filePath);
+      // } catch (error) {
+      //   console.log("[Mineflayer] No credentials file found");
+      //   return null;
+      // }
+
+      // // Read and parse file
+      // const fileContent = await fs.readFile(filePath, "utf8");
+      // const allData = JSON.parse(fileContent);
 
       // Find all merchant bots
-      const merchantBots = Object.entries(allData)
+      const merchantBots = Object.entries(merchantAgents)
         .filter(([_, data]) => (data as AnyType).role === "merchant")
         .map(([username, data]) => ({
           username,
@@ -344,7 +363,10 @@ export class MineflayerService implements IService {
   }
 
   public async buildPlatform(username: string, size: number) {
-    if (!this.bot || size <= 1) return;
+    if (!this.bot || size <= 1) {
+      console.log("[Mineflayer] Bot not found or size is too small");
+      return;
+    }
     const neverminedService = await NeverminedService.getInstance();
     try {
       const player = this.bot.players[username];
@@ -768,6 +790,7 @@ export class MineflayerService implements IService {
 
       const harvestMatch = command.match(/^!harvest\s+(\d+)$/);
       const platformMatch = command.match(/^!platform\s+(\d+)$/);
+      // const mintMatch = command.match(/^!mint\s$/);
 
       if (harvestMatch) {
         const amount = parseInt(harvestMatch[1]);
@@ -801,6 +824,10 @@ export class MineflayerService implements IService {
           console.log("[Mineflayer] Invalid platform size");
           this.bot.chat(message);
         }
+      } else if (command === "!mint") {
+        console.log("[Mineflayer] Mint command received from:", username);
+        this.bot.chat(`Mint command received from ${username}...`);
+        await this.mintToken();
       } else if (command === "!come") {
         console.log("[Mineflayer] Come command received from:", username);
         this.bot.chat(`Come command received from ${username}...`);
@@ -911,6 +938,62 @@ export class MineflayerService implements IService {
     //     });
     //   }
     // });
+  }
+
+  private async mintToken() {
+    if (!this.bot) return;
+
+    const client = axios.create({
+      baseURL: getCollablandApiUrl(),
+      headers: {
+        "X-API-KEY": process.env.COLLABLAND_API_KEY || "",
+        "X-TG-BOT-TOKEN": process.env.TELEGRAM_BOT_TOKEN || "",
+        "Content-Type": "application/json",
+      },
+      timeout: 5 * 60 * 1000,
+    });
+    try {
+      this.bot.chat("Minting your token...");
+      const tokenPath = getTokenMetadataPath();
+      const tokenInfo = jsoncParse(
+        fs.readFileSync(tokenPath, "utf8")
+      ) as TokenMetadata;
+      console.log("TokenInfoToMint", tokenInfo);
+      console.log("Hitting Collab.Land APIs to mint token...");
+      const { data: _tokenData } = await client.post<
+        AnyType,
+        AxiosResponse<MintResponse>
+      >(`/telegrambot/evm/mint?chainId=8453`, {
+        name: tokenInfo.name,
+        symbol: tokenInfo.symbol,
+        metadata: {
+          description: tokenInfo.description ?? "",
+          website_link: tokenInfo.websiteLink ?? "",
+          twitter: tokenInfo.twitter ?? "",
+          discord: tokenInfo.discord ?? "",
+          telegram: tokenInfo.telegram ?? "",
+          media: tokenInfo.image ?? "",
+          nsfw: tokenInfo.nsfw ?? false,
+        },
+      });
+      console.log("Mint response from Collab.Land:");
+      console.dir(_tokenData, { depth: null });
+      const tokenData = _tokenData.response.contract.fungible;
+      this.bot.chat(
+        `Your token has been minted on wow.xyz 🥳
+Token details:
+<pre><code class="language-json">${JSON.stringify(tokenData, null, 2)}</code></pre>
+
+You can view the token page below (it takes a few minutes to be visible)`
+      );
+    } catch (error) {
+      if (isAxiosError(error)) {
+        console.error("Failed to mint token:", error.response?.data);
+      } else {
+        console.error("Failed to mint token:", error);
+      }
+      this.bot.chat("Failed to mint token");
+    }
   }
 
   private async startFollowing(username: string) {

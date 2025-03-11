@@ -89,7 +89,10 @@ export class TelegramService extends BaseService {
         },
         { command: "mint", description: "Mint a token on Wow.xyz" },
         { command: "eliza", description: "Talk to the AI agent" },
-        { command: "lit", description: "Execute a Lit action" },
+        {
+          command: "lit",
+          description: "Execute a Lit action, usage: /lit hello-action",
+        },
       ]);
       // all command handlers can be registered here
       this.bot.command("start", (ctx) => ctx.reply("Hello!"));
@@ -101,12 +104,12 @@ export class TelegramService extends BaseService {
       this.nGrokService = await NgrokService.getInstance();
       try {
         // try starting the twitter service
-        this.twitterService = await TwitterService.getInstance();
-        await this.twitterService?.start();
-        console.log(
-          "Twitter Bot Profile:",
-          JSON.stringify(this.twitterService.me, null, 2)
-        );
+        // this.twitterService = await TwitterService.getInstance();
+        // await this.twitterService?.start();
+        // console.log(
+        //   "Twitter Bot Profile:",
+        //   JSON.stringify(this.twitterService.me, null, 2)
+        // );
       } catch (err) {
         console.log(
           "[WARN] [telegram.service] Unable to use twitter. Functionality will be disabled",
@@ -217,6 +220,7 @@ You can view the token page below (it takes a few minutes to be visible)`,
           ctx.reply("Failed to mint token");
         }
       });
+
       this.bot.command("lit", async (ctx) => {
         try {
           const action = ctx.match;

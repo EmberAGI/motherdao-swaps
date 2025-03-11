@@ -15,6 +15,8 @@
     "generate-types": "typechain --node16-modules --target ethers-v6 --out-dir src/contracts/types 'src/contracts/abis/*.json'"
   },
   "dependencies": {
+    "@0xintuition/graphql": "^0.6.0",
+    "@0xintuition/protocol": "^0.1.4",
     "@ai16z/adapter-sqlite": "0.1.5-alpha.3",
     "@ai16z/eliza": "0.1.5-alpha.3",
     "@ai16z/plugin-bootstrap": "0.1.5-alpha.3",
@@ -42,7 +44,8 @@
     "prettier": "^3.4.2",
     "sqlite-vec": "0.1.7-alpha.2",
     "tsc-watch": "^6.2.1",
-    "vec3": "^0.1.10"
+    "vec3": "^0.1.10",
+    "viem": "^2.23.6"
   },
   "devDependencies": {
     "@typechain/ethers-v6": "^0.5.1",
