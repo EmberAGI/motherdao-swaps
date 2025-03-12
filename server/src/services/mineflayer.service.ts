@@ -14,10 +14,11 @@ import { NeverminedService } from "./nevermined.service.js";
 // import path from "path";
 // import fs from "fs/promises";
 import { AgentExecutionStatus } from "@nevermined-io/payments";
-import { getMerchantAgents } from "../utils/Intuition/queries.js";
+import { getMerchantAgents, getAgentDIDs } from "../utils/Intuition/queries.js";
 import axios, { AxiosResponse, isAxiosError } from "axios";
 import { parse as jsoncParse } from "jsonc-parser";
 import fs from "fs";
+import { ethers } from "ethers";
 
 const { Movements, goals } = pathfinder;
 
@@ -296,7 +297,6 @@ export class MineflayerService implements IService {
           if (logs.length > 1) {
             const message = `Organizing inventory... 📦`;
             console.log(`[Mineflayer] ${message}`);
-            this.bot.chat(message);
             const bestStack = logs.reduce((prev, current) =>
               64 - current.count > 64 - prev.count ? current : prev
             );
@@ -828,6 +828,67 @@ export class MineflayerService implements IService {
         console.log("[Mineflayer] Mint command received from:", username);
         this.bot.chat(`Mint command received from ${username}...`);
         await this.mintToken();
+      } else if (command === "!accounts") {
+        console.log("[Mineflayer] Accounts command received from:", username);
+        this.bot.chat(
+          `Accounts command received from ${username}. Fetching smart account information...`
+        );
+        await this.getBotSmartAccounts();
+      } else if (command === "!sendeth") {
+        console.log("[Mineflayer] Send ETH command received from:", username);
+        this.bot.chat(
+          `ETH Transfer command received from ${username}. Initiating ETH transfer...`
+        );
+        await this.transferEth();
+      } else if (command === "!senderc20") {
+        console.log("[Mineflayer] Send ERC20 command received from:", username);
+
+        // Parse command parameters: !senderc20 [tokenAddress] [recipientAddress] [amount]
+        const params = message.split(" ").slice(2); // Skip the bot name and command
+        console.log("[Mineflayer] ERC20 transfer params:", params);
+
+        let tokenAddress, recipientAddress, amount;
+
+        if (params.length >= 1 && params[0].startsWith("0x")) {
+          tokenAddress = params[0];
+        }
+
+        if (params.length >= 2 && params[1].startsWith("0x")) {
+          recipientAddress = params[1];
+        }
+
+        if (params.length >= 3) {
+          // Check if the amount is a valid number
+          const parsedAmount = parseFloat(params[2]);
+          if (!isNaN(parsedAmount) && parsedAmount > 0) {
+            // Convert to smallest unit (assuming 6 decimals for simplicity)
+            // For proper handling, we would need to query the token's decimals
+            amount = (parsedAmount * 1000000).toString();
+          }
+        }
+
+        this.bot.chat(
+          `ERC20 Transfer command received from ${username}. Initiating ERC20 token transfer...`
+        );
+
+        await this.transferERC20(tokenAddress, recipientAddress, amount);
+      } else if (command === "!help") {
+        console.log("[Mineflayer] Help command received from:", username);
+        const helpMessage = `
+Available commands:
+!harvest <amount> - Harvest trees and collect logs
+!platform <size> - Build a platform of specified size
+!mint - Mint a token using CollabLand APIs
+!accounts - Display bot smart account information
+!balance [token_address] - Check token balance (native ETH by default)
+!come - Request the bot to come to you
+!follow - Bot will follow you around
+!stop - Stop following you
+!help - Display this help message
+!sendeth - Transfer ETH to a specified address
+!senderc20 [token_address] [recipient_address] [amount] - Transfer ERC20 tokens
+`;
+        this.bot.chat(helpMessage);
       } else if (command === "!come") {
         console.log("[Mineflayer] Come command received from:", username);
         this.bot.chat(`Come command received from ${username}...`);
@@ -863,6 +924,16 @@ export class MineflayerService implements IService {
         console.log("[Mineflayer] Throw command received from:", username);
         this.bot.chat(`Throw command received from ${username}...`);
         await this.throwLogs(username);
+      } else if (command === "!info") {
+        console.log("[Mineflayer] Info command received from:", username);
+        this.bot.chat(`Info command received from ${username}...`);
+        const botInfo = await this.getBotInfo();
+        console.log("[Mineflayer] Bot info:", botInfo);
+        this.bot.chat(JSON.stringify(botInfo, null, 2));
+      } else if (command === "!send") {
+        console.log("[Mineflayer] Send command received from:", username);
+        this.bot.chat(`Send command received from ${username}...`);
+        // await this.sendLogs(username);
       }
     });
 
@@ -993,6 +1064,412 @@ You can view the token page below (it takes a few minutes to be visible)`
         console.error("Failed to mint token:", error);
       }
       this.bot.chat("Failed to mint token");
+    }
+  }
+
+  /**
+   * Fetches bot smart accounts from the CollabLand AccountKit API and displays information to the user
+   */
+  public async getBotSmartAccounts() {
+    if (!this.bot) return;
+
+    interface EVMAccount {
+      chainId: number;
+      address: string;
+    }
+
+    interface SolanaAccount {
+      network: string;
+      address: string;
+    }
+
+    interface BotAccountResponse {
+      pkpAddress: string;
+      evm: EVMAccount[];
+      solana: SolanaAccount[];
+    }
+
+    const client = axios.create({
+      baseURL: getCollablandApiUrl(),
+      headers: {
+        "X-API-KEY": process.env.COLLABLAND_API_KEY || "",
+        "X-TG-BOT-TOKEN": process.env.TELEGRAM_BOT_TOKEN || "",
+        "Content-Type": "application/json",
+      },
+      timeout: 5 * 60 * 1000,
+    });
+
+    try {
+      this.bot.chat("Fetching smart account information...");
+
+      console.log("Hitting Collab.Land APIs to get the smart accounts...");
+      const response = await client.get<BotAccountResponse>(
+        `/telegrambot/accounts`,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "X-TG-BOT-TOKEN": process.env.TELEGRAM_BOT_TOKEN,
+            "X-API-KEY": process.env.COLLABLAND_API_KEY,
+          },
+        }
+      );
+
+      console.log(
+        "Smart account response from Collab.Land API:",
+        response.data
+      );
+
+      // Map chain IDs to network names for better readability
+      const chainIdToName: Record<number, string> = {
+        1: "Ethereum Mainnet",
+        5: "Goerli Testnet",
+        11155111: "Sepolia Testnet",
+        137: "Polygon",
+        80001: "Mumbai Testnet",
+        8453: "Base Mainnet",
+        84532: "Base Sepolia",
+      };
+
+      // Format EVM accounts with network names where available
+      const formattedEvmAccounts = response.data.evm
+        .map((account) => {
+          const networkName =
+            chainIdToName[account.chainId] || `Chain ID: ${account.chainId}`;
+          return `• ${account.address} (${networkName})`;
+        })
+        .join("\n");
+
+      // Format Solana accounts
+      const formattedSolanaAccounts = response.data.solana
+        .map((account) => `• ${account.address} (${account.network})`)
+        .join("\n");
+
+      // Create a formatted response message
+      const message = `
+📊 Bot Smart Account Information:
+
+🔑 PKP Signer Address: ${response.data.pkpAddress}
+
+⚡ EVM Accounts:
+${formattedEvmAccounts || "No EVM accounts found"}
+
+☀️ Solana Accounts:
+${formattedSolanaAccounts || "No Solana accounts found"}
+
+These accounts are managed by the AccountKit APIs and can be used for various blockchain operations.
+`;
+
+      this.bot.chat(message);
+      return response.data;
+    } catch (error) {
+      if (isAxiosError(error)) {
+        console.error("Failed to fetch smart accounts:", error.response?.data);
+        this.bot.chat(
+          `Failed to fetch smart accounts: ${error.response?.data?.message || error.message}`
+        );
+      } else {
+        console.error("Failed to fetch smart accounts:", error);
+        this.bot.chat(
+          `Failed to fetch smart accounts: ${error instanceof Error ? error.message : "Unknown error"}`
+        );
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Transfers ETH to a specified address on Base Sepolia using the CollabLand AccountKit API
+   * @param address The address to transfer ETH to (defaults to a test address)
+   */
+  public async transferEth(
+    address: string = "0x80815bc5042AEc6B504E81537be214EBDB3b7A60"
+  ) {
+    if (!this.bot) return;
+
+    const receiver = "0xA32D31CC8877bB7961D84156EE4dADe6872EBE15";
+    const amount = ethers.parseEther("0.001");
+    console.log(
+      `Amount to transfer from ${address} to ${receiver}:`,
+      amount.toString()
+    );
+
+    try {
+      this.bot.chat(
+        `Initiating ETH transfer to ${receiver} on Base Sepolia...`
+      );
+
+      // Create axios client for API requests
+      const client = axios.create({
+        baseURL: getCollablandApiUrl(),
+        headers: {
+          "X-API-KEY": process.env.COLLABLAND_API_KEY || "",
+          "X-TG-BOT-TOKEN": process.env.TELEGRAM_BOT_TOKEN || "",
+          "Content-Type": "application/json",
+        },
+        timeout: 5 * 60 * 1000,
+      });
+
+      // Prepare the payload for the transfer operation
+      const payload = {
+        target: receiver,
+        value: amount.toString(),
+        calldata: "0x", // Empty calldata for simple ETH transfer
+      };
+
+      console.log("Submitting transfer UserOperation:", payload);
+
+      // Submit the user operation to execute the transfer
+      const { data } = await client.post(
+        `/telegrambot/evm/submitUserOperation?chainId=84532`, // 84532 is Base Sepolia
+        payload,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "X-TG-BOT-TOKEN": process.env.TELEGRAM_BOT_TOKEN!,
+            "X-API-KEY": process.env.COLLABLAND_API_KEY!,
+            Accept: "application/json",
+          },
+        }
+      );
+
+      console.log("UserOperation submitted:", data);
+      const userOpHash = data.userOperationHash;
+
+      this.bot.chat(`UserOperation submitted: ${userOpHash}`);
+
+      // Wait for the user operation to complete
+      let receipt = null;
+      let retries = 0;
+      const maxRetries = 10;
+
+      while (retries < maxRetries) {
+        try {
+          console.log("Fetching receipt for UserOperation:", userOpHash);
+          const receiptResponse = await client.get(
+            `/telegrambot/evm/userOperationReceipt?chainId=84532&userOperationHash=${userOpHash}`,
+            {
+              headers: {
+                "Content-Type": "application/json",
+                "X-TG-BOT-TOKEN": process.env.TELEGRAM_BOT_TOKEN!,
+                "X-API-KEY": process.env.COLLABLAND_API_KEY!,
+              },
+            }
+          );
+          console.log("Receipt fetched:", receiptResponse.data);
+          receipt = receiptResponse.data;
+          if (receipt && receipt.success) {
+            break;
+          }
+        } catch (err) {
+          console.error(
+            `Error fetching receipt (attempt ${retries + 1}):`,
+            err
+          );
+        }
+
+        retries++;
+        await new Promise((resolve) => setTimeout(resolve, 2000)); // Wait 2 seconds between retries
+      }
+
+      if (!receipt || !receipt.success) {
+        this.bot.chat("Failed to transfer ETH. Operation timed out or failed.");
+        return;
+      }
+
+      const message = `
+💸 ETH Transfer Complete:
+
+To: ${receiver}
+Amount: ${ethers.formatEther(amount)} ETH
+Network: Base Sepolia
+Status: Success ✅
+
+Transaction was executed using CollabLand's AccountKit API.
+`;
+
+      this.bot.chat(message);
+      return { receiver, amount: ethers.formatEther(amount), success: true };
+    } catch (error) {
+      if (isAxiosError(error)) {
+        console.error("Failed to transfer ETH:", error.response?.data);
+        this.bot.chat(
+          `Failed to transfer ETH: ${
+            error.response?.data?.error?.message ||
+            error.response?.data?.message ||
+            error.message
+          }`
+        );
+      } else {
+        console.error("Failed to transfer ETH:", error);
+        this.bot.chat(
+          `Failed to transfer ETH: ${error instanceof Error ? error.message : "Unknown error"}`
+        );
+      }
+      return null;
+    }
+  }
+
+  /**
+   * Transfers ERC20 tokens from the bot's account to a recipient using CollabLand's AccountKit API
+   * @param tokenAddress The address of the ERC20 token to transfer
+   * @param recipientAddress The address of the recipient to transfer tokens to
+   * @param amount The amount to transfer in token's smallest unit (e.g., wei for ETH)
+   * @returns Transaction details or null if the transfer failed
+   */
+  public async transferERC20(
+    tokenAddress: string = "0x036CbD53842c5426634e7929541eC2318f3dCF7e", // Default: USDC on Base Sepolia
+    recipientAddress: string = "0xA32D31CC8877bB7961D84156EE4dADe6872EBE15", // Default recipient
+    amount: string = "1000000" // Default: 1 USDC (6 decimals)
+  ) {
+    if (!this.bot) return;
+
+    try {
+      this.bot.chat(
+        `Initiating ERC20 token transfer to ${recipientAddress} on Base Sepolia...`
+      );
+
+      // Create axios client for API requests
+      const client = axios.create({
+        baseURL: getCollablandApiUrl(),
+        headers: {
+          "X-API-KEY": process.env.COLLABLAND_API_KEY || "",
+          "X-TG-BOT-TOKEN": process.env.TELEGRAM_BOT_TOKEN || "",
+          "Content-Type": "application/json",
+        },
+        timeout: 5 * 60 * 1000,
+      });
+
+      // Use ethers to properly encode the calldata for the ERC20 transfer
+      // Following the ERC20 standard interface
+      const iface = new ethers.Interface([
+        "function transfer(address to, uint256 amount) returns (bool)",
+      ]);
+
+      // Encode the function call with parameters
+      const encodedCalldata = iface.encodeFunctionData("transfer", [
+        recipientAddress,
+        amount,
+      ]);
+
+      // Prepare the payload for the transfer operation
+      const payload = {
+        target: tokenAddress, // The ERC20 token contract address
+        value: "0", // No ETH value for ERC20 transfers
+        calldata: encodedCalldata, // The properly encoded function call
+      };
+
+      console.log("Submitting ERC20 transfer UserOperation:", payload);
+
+      // Submit the user operation to execute the transfer
+      const { data } = await client.post(
+        `/telegrambot/evm/submitUserOperation?chainId=84532`, // 84532 is Base Sepolia
+        payload,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "X-TG-BOT-TOKEN": process.env.TELEGRAM_BOT_TOKEN!,
+            "X-API-KEY": process.env.COLLABLAND_API_KEY!,
+            Accept: "application/json",
+          },
+        }
+      );
+
+      console.log("UserOperation submitted:", data);
+      const userOpHash = data.userOperationHash;
+
+      this.bot.chat(`UserOperation submitted: ${userOpHash}`);
+
+      // Wait for the user operation to complete
+      let receipt = null;
+      let retries = 0;
+      const maxRetries = 10;
+
+      while (retries < maxRetries) {
+        try {
+          console.log("Fetching receipt for UserOperation:", userOpHash);
+          const receiptResponse = await client.get(
+            `/telegrambot/evm/userOperationReceipt?chainId=84532&userOperationHash=${userOpHash}`,
+            {
+              headers: {
+                "Content-Type": "application/json",
+                "X-TG-BOT-TOKEN": process.env.TELEGRAM_BOT_TOKEN!,
+                "X-API-KEY": process.env.COLLABLAND_API_KEY!,
+              },
+            }
+          );
+          console.log("Receipt fetched:", receiptResponse.data);
+          receipt = receiptResponse.data;
+          if (receipt && receipt.success) {
+            break;
+          }
+        } catch (err) {
+          console.error(
+            `Error fetching receipt (attempt ${retries + 1}):`,
+            err
+          );
+        }
+
+        retries++;
+        await new Promise((resolve) => setTimeout(resolve, 2000)); // Wait 2 seconds between retries
+      }
+
+      if (!receipt || !receipt.success) {
+        this.bot.chat(
+          "Failed to transfer ERC20 tokens. Operation timed out or failed."
+        );
+        return;
+      }
+
+      // Format token amount with proper decimals (assuming 6 decimals for USDC)
+      const formattedAmount =
+        tokenAddress === "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+          ? (BigInt(amount) / BigInt(10 ** 6)).toString() // 6 decimals for USDC
+          : amount; // Use raw amount for other tokens
+
+      const tokenSymbol =
+        tokenAddress === "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+          ? "USDC"
+          : "ERC20";
+
+      const message = `
+💸 ERC20 Token Transfer Complete:
+
+To: ${recipientAddress}
+Amount: ${formattedAmount} ${tokenSymbol}
+Token: ${tokenAddress}
+Network: Base Sepolia
+Status: Success ✅
+
+Transaction hash: ${receipt.receipt?.transactionHash || "N/A"}
+Transaction was executed using CollabLand's AccountKit API.
+`;
+
+      this.bot.chat(message);
+      return {
+        recipient: recipientAddress,
+        amount: formattedAmount,
+        token: tokenAddress,
+        tokenSymbol,
+        txHash: receipt.receipt?.transactionHash,
+        success: true,
+      };
+    } catch (error) {
+      if (isAxiosError(error)) {
+        console.error("Failed to transfer ERC20 tokens:", error.response?.data);
+        this.bot.chat(
+          `Failed to transfer ERC20 tokens: ${
+            error.response?.data?.error?.message ||
+            error.response?.data?.message ||
+            error.message
+          }`
+        );
+      } else {
+        console.error("Failed to transfer ERC20 tokens:", error);
+        this.bot.chat(
+          `Failed to transfer ERC20 tokens: ${error instanceof Error ? error.message : "Unknown error"}`
+        );
+      }
+      return null;
     }
   }
 
@@ -1156,6 +1633,7 @@ You can view the token page below (it takes a few minutes to be visible)`
   }
 
   async getBotInfo() {
+    const intuitionData = await getAgentDIDs(this.bot?.username || "");
     return {
       username: this.bot?.username,
       version: this.bot?.version,
@@ -1163,6 +1641,8 @@ You can view the token page below (it takes a few minutes to be visible)`
       gameMode: this.bot?.game?.gameMode,
       position: this.bot?.entity?.position,
       role: this.role,
+      agentDID: intuitionData.agentDID,
+      paymentPlanDID: intuitionData.planDID,
     };
   }
 

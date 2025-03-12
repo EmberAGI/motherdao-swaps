@@ -11,7 +11,8 @@ import { BaseService } from "./base.service.js";
 import { parseUnits } from "ethers";
 import * as path from "path";
 import * as fs from "fs/promises";
-import { AnyType } from "src/utils.js";
+import { AnyType } from "../utils.js";
+import { getAgentDIDs } from "../utils/Intuition/queries.js";
 import { MineflayerService } from "./mineflayer.service.js";
 
 //FIXME: Remove once Nevermined SDK is updated
@@ -22,12 +23,33 @@ interface NeverminedTask extends Omit<Task, "steps" | "name"> {
   did: string;
 }
 
+interface DIDsResult {
+  success: boolean;
+  data?: {
+    agentDID: string;
+    paymentPlanDID: string;
+  };
+  error?: string;
+}
+
 export class NeverminedService extends BaseService {
   private client: Payments | null = null;
   private paymentPlanDID: string | null = null;
   private agentDID: string | null = null;
   private static instance: NeverminedService;
   private mineflayerService: MineflayerService | null = null;
+
+  // Validate that the bot info is properly initialized
+  private async validateBotInfo(): Promise<string> {
+    const botInfo = await this.mineflayerService?.getBotInfo();
+    if (!botInfo || !botInfo.username || botInfo.username === "unknown") {
+      throw new Error(
+        "[NeverminedService] Bot information not properly initialized"
+      );
+    }
+    return botInfo.username;
+  }
+
   constructor() {
     super();
   }
@@ -45,6 +67,42 @@ export class NeverminedService extends BaseService {
 
     this.mineflayerService = MineflayerService.getInstance();
 
+    // Wait for Mineflayer to be properly initialized
+    const maxRetries = 5;
+    const retryDelay = 5000; // 5 seconds
+
+    // Wait for Mineflayer to be properly initialized
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        const botInfo = await this.mineflayerService?.getBotInfo();
+        if (botInfo && botInfo.username && botInfo.username !== "unknown") {
+          console.log(
+            "[NeverminedService] Mineflayer bot initialized successfully:",
+            botInfo.username
+          );
+          break;
+        }
+        if (i === maxRetries - 1) {
+          throw new Error("Max retries reached waiting for bot initialization");
+        }
+        console.log(
+          `[NeverminedService] Waiting for bot initialization... (attempt ${i + 1}/${maxRetries})`
+        );
+        await new Promise((resolve) => setTimeout(resolve, retryDelay));
+      } catch (error) {
+        if (i === maxRetries - 1) {
+          throw new Error(
+            `Failed to initialize Nevermined service: ${error.message}`
+          );
+        }
+        console.log(
+          `[NeverminedService] Retry attempt ${i + 1}/${maxRetries} failed:`,
+          error.message
+        );
+        await new Promise((resolve) => setTimeout(resolve, retryDelay));
+      }
+    }
+
     if (!this.client.isLoggedIn) {
       throw new Error("Nevermined client not logged in");
     }
@@ -56,18 +114,18 @@ export class NeverminedService extends BaseService {
 
     // Try to load DIDs from file first
     const loadedDIDs = await this.loadDIDsFromFile();
-
-    if (loadedDIDs) {
+    if (loadedDIDs.success && loadedDIDs.data) {
       console.log("[NeverminedService] Loaded DIDs from file");
-      this.paymentPlanDID = loadedDIDs.paymentPlanDID;
-      this.agentDID = loadedDIDs.agentDID;
+      this.paymentPlanDID = loadedDIDs.data.paymentPlanDID;
+      this.agentDID = loadedDIDs.data.agentDID;
     } else {
-      console.log("[NeverminedService] No saved DIDs found, creating new ones");
+      console.log(`[NeverminedService] Creating new DIDs: ${loadedDIDs.error}`);
       this.paymentPlanDID =
         process.env.NEVERMINED_PAYMENT_PLAN_DID ??
         (await this.getPaymentPlanDID());
       this.agentDID =
-        process.env.NEVERMINED_AGENT_DID ?? (await this.getAgentDID());
+        process.env.NEVERMINED_AGENT_DID ??
+        (await getAgentDIDs(await this.validateBotInfo())).agentDID;
 
       // Save DIDs to file for persistence
       await this.saveDIDsToFile();
@@ -111,8 +169,8 @@ export class NeverminedService extends BaseService {
 
     // Check if we have a DID in the data directory for this bot
     const loadedDIDs = await this.loadDIDsFromFile();
-    if (loadedDIDs && loadedDIDs.paymentPlanDID) {
-      this.paymentPlanDID = loadedDIDs.paymentPlanDID;
+    if (loadedDIDs.success && loadedDIDs.data?.paymentPlanDID) {
+      this.paymentPlanDID = loadedDIDs.data.paymentPlanDID;
       console.log(
         "[NeverminedService] Using payment plan DID from data file:",
         this.paymentPlanDID
@@ -124,7 +182,12 @@ export class NeverminedService extends BaseService {
     try {
       console.log("[NeverminedService] Creating new payment plan...");
       const botInfo = await this.mineflayerService?.getBotInfo();
-      const uniqueId = `${botInfo?.username ?? "unknown"}-${Date.now()}`;
+      if (!botInfo || !botInfo.username || botInfo.username === "unknown") {
+        throw new Error(
+          "[NeverminedService] Bot information not properly initialized"
+        );
+      }
+      const uniqueId = `${botInfo.username}-${Date.now()}`;
       console.log("[NeverminedService] Bot info:", botInfo);
 
       const paymentPlan = await this.client.createCreditsPlan({
@@ -155,8 +218,8 @@ export class NeverminedService extends BaseService {
 
     // Check if we have a DID in the data directory for this bot
     const loadedDIDs = await this.loadDIDsFromFile();
-    if (loadedDIDs && loadedDIDs.agentDID) {
-      this.agentDID = loadedDIDs.agentDID;
+    if (loadedDIDs.success && loadedDIDs.data?.agentDID) {
+      this.agentDID = loadedDIDs.data.agentDID;
       console.log(
         "[NeverminedService] Using agent DID from data file:",
         this.agentDID
@@ -168,7 +231,12 @@ export class NeverminedService extends BaseService {
     try {
       console.log("[NeverminedService] Creating new agent...");
       const botInfo = await this.mineflayerService?.getBotInfo();
-      const uniqueId = `${botInfo?.username ?? "unknown"}-${Date.now()}`;
+      if (!botInfo || !botInfo.username || botInfo.username === "unknown") {
+        throw new Error(
+          "[NeverminedService] Bot information not properly initialized"
+        );
+      }
+      const uniqueId = `${botInfo.username}-${Date.now()}`;
 
       const agent = await this.client.createAgent({
         name: `Agent:::${uniqueId}`,
@@ -393,28 +461,31 @@ export class NeverminedService extends BaseService {
     }
   }
 
-  private async loadDIDsFromFile(): Promise<{
-    agentDID: string;
-    paymentPlanDID: string;
-  } | null> {
+  private async loadDIDsFromFile(): Promise<DIDsResult> {
     try {
+      // Early validation of bot info
+      let botUsername: string;
+      try {
+        botUsername = await this.validateBotInfo();
+      } catch (error) {
+        return {
+          success: false,
+          error: `Bot validation failed: ${error.message}`,
+        };
+      }
+
       const dataDir = path.resolve(process.cwd(), "data");
       console.log("[NeverminedService] Data directory:", dataDir);
       const filePath = path.join(dataDir, "nevermined-credentials.json");
-
-      // Get bot username to use as key
-      const botInfo = await this.mineflayerService?.getBotInfo();
-      const botUsername = botInfo?.username ?? "unknown";
-      console.log(
-        `[NeverminedService] Looking for DIDs for bot: ${botUsername}`
-      );
 
       // Check if file exists
       try {
         await fs.access(filePath);
       } catch (error) {
-        console.log("[NeverminedService] No DIDs file found");
-        return null;
+        return {
+          success: false,
+          error: "Credentials file not found",
+        };
       }
 
       // Read and parse file
@@ -424,18 +495,64 @@ export class NeverminedService extends BaseService {
       // Get this bot's DIDs
       const botData = allData[botUsername];
       if (!botData || !botData.agentDID || !botData.paymentPlanDID) {
-        console.log(`[NeverminedService] No DIDs found for bot ${botUsername}`);
-        return null;
+        return {
+          success: false,
+          error: `No valid DIDs found for bot ${botUsername}`,
+        };
       }
 
       console.log(`[NeverminedService] Found DIDs for bot ${botUsername}`);
       return {
-        agentDID: botData.agentDID,
-        paymentPlanDID: botData.paymentPlanDID,
+        success: true,
+        data: {
+          agentDID: botData.agentDID,
+          paymentPlanDID: botData.paymentPlanDID,
+        },
       };
     } catch (error) {
-      console.error("[NeverminedService] Error loading DIDs from file:", error);
-      return null;
+      return {
+        success: false,
+        error: `Unexpected error: ${error.message}`,
+      };
+    }
+  }
+
+  public async checkHealth(): Promise<{ healthy: boolean; details: string }> {
+    try {
+      // Check if client is initialized and logged in
+      if (!this.client || !this.client.isLoggedIn) {
+        return {
+          healthy: false,
+          details: "Nevermined client not initialized or not logged in",
+        };
+      }
+
+      // Check if bot info is available
+      const botInfo = await this.mineflayerService?.getBotInfo();
+      if (!botInfo || !botInfo.username || botInfo.username === "unknown") {
+        return {
+          healthy: false,
+          details: "Bot not properly initialized",
+        };
+      }
+
+      // Check if DIDs are loaded
+      if (!this.paymentPlanDID || !this.agentDID) {
+        return {
+          healthy: false,
+          details: "DIDs not properly loaded",
+        };
+      }
+
+      return {
+        healthy: true,
+        details: `Service healthy - Bot: ${botInfo.username}, PaymentPlanDID: ${this.paymentPlanDID}, AgentDID: ${this.agentDID}`,
+      };
+    } catch (error) {
+      return {
+        healthy: false,
+        details: `Health check failed: ${error.message}`,
+      };
     }
   }
 }

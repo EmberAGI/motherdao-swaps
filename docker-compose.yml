@@ -12,15 +12,15 @@ services:
       - PORT=3001
       - MINECRAFT_USERNAME=BobBot
       # For Linux, use the special Docker DNS name
-      # - MINECRAFT_HOST=host.docker.internal
+      - MINECRAFT_HOST=host.docker.internal
       # Use the IP address of the host machine
-      - MINECRAFT_HOST=192.168.1.131
+      # - MINECRAFT_HOST=Purringbeatle.aternos.me
       - MINECRAFT_ROLE=builder
       - NEVERMINED_API_KEY=${BOB_NEVERMINED_API_KEY}
       - PRIVATE_KEY=${BOB_PRIVATE_KEY}
       - NEVERMINED_AGENT_DID=${BOB_NEVERMINED_AGENT_DID}
       - NEVERMINED_PAYMENT_PLAN_DID=${BOB_NEVERMINED_PAYMENT_PLAN_DID}
-
+      - MINECRAFT_VERSION=1.20
     ports:
       - '3001:3001'
     volumes:
@@ -44,14 +44,15 @@ services:
       - PORT=3002
       - MINECRAFT_USERNAME=AliceBot
       # For Linux, use the special Docker DNS name
-      # - MINECRAFT_HOST=host.docker.internal
+      - MINECRAFT_HOST=host.docker.internal
       # Use the IP address of the host machine
-      - MINECRAFT_HOST=192.168.1.131
+      # - MINECRAFT_HOST=Purringbeatle.aternos.me
       - MINECRAFT_ROLE=merchant
       - NEVERMINED_API_KEY=${ALICE_NEVERMINED_API_KEY}
       - PRIVATE_KEY=${ALICE_PRIVATE_KEY}
       - NEVERMINED_AGENT_DID=${ALICE_NEVERMINED_AGENT_DID}
       - NEVERMINED_PAYMENT_PLAN_DID=${ALICE_NEVERMINED_PAYMENT_PLAN_DID}
+      - MINECRAFT_VERSION=1.20
     ports:
       - '3002:3002'
     volumes:

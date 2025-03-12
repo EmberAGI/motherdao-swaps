@@ -930,3 +930,69 @@ export async function getMerchantAgents(): Promise<MerchantAgentOutput> {
     throw error;
   }
 }
+
+/**
+ * Interface for agent's Nevermined identifiers
+ */
+interface AgentNeverminedIdentifiers {
+  agentDID: string | null;
+  planDID: string | null;
+  error?: string;
+}
+
+/**
+ * Fetches an agent's Nevermined DIDs (both agent DID and plan DID) from Intuition
+ * @param agentName - The name of the agent to fetch DIDs for
+ * @returns Promise resolving to the agent's DIDs or error
+ */
+export async function getAgentDIDs(
+  agentName: string
+): Promise<AgentNeverminedIdentifiers> {
+  try {
+    console.log(`[Intuition] Fetching DIDs for agent: ${agentName}`);
+
+    // Fetch agent DID
+    const agentDIDResponse = await getTriples("neverminedAgentId", "%");
+    const agentDIDTriple = agentDIDResponse.triples.find(
+      (triple) => triple.subject.value.thing?.name === agentName
+    );
+
+    // Fetch plan DID
+    const planDIDResponse = await getTriples("neverminedPlanId", "%");
+    const planDIDTriple = planDIDResponse.triples.find(
+      (triple) => triple.subject.value.thing?.name === agentName
+    );
+
+    if (!agentDIDTriple && !planDIDTriple) {
+      return {
+        agentDID: null,
+        planDID: null,
+        error: `No DIDs found for agent: ${agentName}`,
+      };
+    }
+
+    return {
+      agentDID: agentDIDTriple?.object.value.thing?.name || null,
+      planDID: planDIDTriple?.object.value.thing?.name || null,
+    };
+  } catch (error) {
+    console.error(
+      `[Intuition] Error fetching DIDs for agent ${agentName}:`,
+      error
+    );
+    return {
+      agentDID: null,
+      planDID: null,
+      error: error instanceof Error ? error.message : "Unknown error occurred",
+    };
+  }
+}
+
+// Example usage:
+// const dids = await getAgentDIDs("AgentName");
+// if (dids.error) {
+//   console.error(dids.error);
+// } else {
+//   console.log("Agent DID:", dids.agentDID);
+//   console.log("Plan DID:", dids.planDID);
+// }
