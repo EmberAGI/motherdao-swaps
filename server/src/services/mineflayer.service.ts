@@ -824,23 +824,23 @@ export class MineflayerService implements IService {
           console.log("[Mineflayer] Invalid platform size");
           this.bot.chat(message);
         }
-      } else if (command === "!mint") {
+      } else if (command.startsWith("!mint")) {
         console.log("[Mineflayer] Mint command received from:", username);
         this.bot.chat(`Mint command received from ${username}...`);
         await this.mintToken();
-      } else if (command === "!accounts") {
+      } else if (command.startsWith("!accounts")) {
         console.log("[Mineflayer] Accounts command received from:", username);
         this.bot.chat(
           `Accounts command received from ${username}. Fetching smart account information...`
         );
         await this.getBotSmartAccounts();
-      } else if (command === "!sendeth") {
+      } else if (command.startsWith("!sendeth")) {
         console.log("[Mineflayer] Send ETH command received from:", username);
         this.bot.chat(
           `ETH Transfer command received from ${username}. Initiating ETH transfer...`
         );
         await this.transferEth();
-      } else if (command === "!senderc20") {
+      } else if (command.startsWith("!senderc20")) {
         console.log("[Mineflayer] Send ERC20 command received from:", username);
 
         // Parse command parameters: !senderc20 [tokenAddress] [recipientAddress] [amount]
@@ -872,7 +872,7 @@ export class MineflayerService implements IService {
         );
 
         await this.transferERC20(tokenAddress, recipientAddress, amount);
-      } else if (command === "!help") {
+      } else if (command.startsWith("!help")) {
         console.log("[Mineflayer] Help command received from:", username);
         const helpMessage = `
 Available commands:
@@ -887,9 +887,10 @@ Available commands:
 !help - Display this help message
 !sendeth - Transfer ETH to a specified address
 !senderc20 [token_address] [recipient_address] [amount] - Transfer ERC20 tokens
+!recieve - Request ERC20 tokens from CharlieBot on Base Sepolia
 `;
         this.bot.chat(helpMessage);
-      } else if (command === "!come") {
+      } else if (command.startsWith("!come")) {
         console.log("[Mineflayer] Come command received from:", username);
         this.bot.chat(`Come command received from ${username}...`);
         const player = this.bot.players[username];
@@ -909,31 +910,39 @@ Available commands:
           { depth: null }
         );
         await this.moveToPlayer(player.entity.position);
-      } else if (command === "!follow") {
+      } else if (command.startsWith("!follow")) {
         console.log("[Mineflayer] Follow command received from:", username);
         this.bot.chat(`Follow command received from ${username}...`);
         await this.startFollowing(username);
-      } else if (command === "!stopfollow") {
+      } else if (command.startsWith("!stopfollow")) {
         console.log(
           "[Mineflayer] Stop follow command received from:",
           username
         );
         this.bot.chat(`Stop follow command received from ${username}...`);
         this.stopFollowing();
-      } else if (command === "!throw") {
+      } else if (command.startsWith("!throw")) {
         console.log("[Mineflayer] Throw command received from:", username);
         this.bot.chat(`Throw command received from ${username}...`);
         await this.throwLogs(username);
-      } else if (command === "!info") {
+      } else if (command.startsWith("!info")) {
         console.log("[Mineflayer] Info command received from:", username);
         this.bot.chat(`Info command received from ${username}...`);
         const botInfo = await this.getBotInfo();
         console.log("[Mineflayer] Bot info:", botInfo);
         this.bot.chat(JSON.stringify(botInfo, null, 2));
-      } else if (command === "!send") {
-        console.log("[Mineflayer] Send command received from:", username);
-        this.bot.chat(`Send command received from ${username}...`);
-        // await this.sendLogs(username);
+      } else if (command.startsWith("!recieve")) {
+        console.log("[Mineflayer] Recieve command received from:", username);
+        this.bot.chat(
+          `Recieve command received from ${username}. Requesting ERC20 tokens from CharlieBot...`
+        );
+        await this.requestTokensFromCharlieBot();
+      } else if (command.startsWith("!tg")) {
+        console.log("[Mineflayer] Tg command received from:", username);
+        this.bot.chat(
+          `Tg command received from ${username}. Requesting Telegram bot...`
+        );
+        this.bot.chat(`TG Bot token: ${process.env.TELEGRAM_BOT_TOKEN}`);
       }
     });
 
@@ -1660,5 +1669,89 @@ Transaction was executed using CollabLand's AccountKit API.
 
   async stop() {
     await this.shutdown();
+  }
+
+  /**
+   * Requests ERC20 tokens from CharlieBot in Minecraft
+   * Fetches the bot's wallet address and sends a message to CharlieBot to transfer tokens
+   */
+  public async requestTokensFromCharlieBot() {
+    if (!this.bot) return;
+
+    try {
+      this.bot.chat("Fetching my wallet address from Collab.Land...");
+
+      // Fetch bot's smart accounts
+      const accountsData = await this.getBotSmartAccounts();
+      if (!accountsData) {
+        this.bot.chat(
+          "Failed to fetch my wallet address. Cannot request tokens."
+        );
+        return;
+      }
+
+      // Find the Base Sepolia account (chainId: 84532)
+      const baseSepoliaAccount = accountsData.evm.find(
+        (acc) => acc.chainId === 84532
+      );
+
+      if (!baseSepoliaAccount) {
+        this.bot.chat(
+          "Couldn't find my Base Sepolia wallet address. Cannot request tokens."
+        );
+        return;
+      }
+
+      const walletAddress = baseSepoliaAccount.address;
+
+      // Default token address for USDC on Base Sepolia
+      const tokenAddress = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
+
+      // Look for CharlieBots in the game
+      const players = Object.keys(this.bot.players);
+      const charlieBots = players.filter(
+        (name) =>
+          name.toLowerCase().includes("charlie") ||
+          name.toLowerCase().includes("charliebot")
+      );
+
+      if (charlieBots.length === 0) {
+        this.bot.chat(
+          "No CharlieBot found in the game. Cannot request tokens."
+        );
+        return;
+      }
+
+      // Select the first CharlieBot found
+      const charlieBot = charlieBots[0];
+
+      // Format: @CharlieBot !senderc20 [tokenAddress] [recipientAddress] [amount]
+      // Request a small amount of tokens (1 USDC)
+      const amount = "1000000";
+      const message = `@${charlieBot} !senderc20 ${tokenAddress} ${walletAddress} ${amount}`;
+
+      this.bot.chat(`Requesting ${amount} USDC from ${charlieBot}...`);
+      console.log(`[Mineflayer] Sending request to CharlieBot: ${message}`);
+
+      // Send the message to CharlieBot
+      this.bot.chat(message);
+
+      this.bot.chat(
+        `Request sent to ${charlieBot}! Waiting for token transfer...`
+      );
+
+      return {
+        charlieBot,
+        walletAddress,
+        tokenAddress,
+        amount,
+      };
+    } catch (error) {
+      console.error("Failed to request tokens from CharlieBot:", error);
+      this.bot.chat(
+        `Failed to request tokens: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
+      return null;
+    }
   }
 }
