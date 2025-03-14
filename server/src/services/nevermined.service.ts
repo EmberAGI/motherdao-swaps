@@ -63,8 +63,7 @@ export class NeverminedService extends BaseService {
 
     this.client = Payments.getInstance({
       environment:
-        (process.env.NEVERMINED_ENVIRONMENT as EnvironmentName) ??
-        "base-sepolia",
+        (process.env.NEVERMINED_ENVIRONMENT as EnvironmentName) ?? "testing",
       nvmApiKey: process.env.NEVERMINED_API_KEY!,
     });
 
@@ -287,7 +286,7 @@ export class NeverminedService extends BaseService {
   private processQuery(payments: Payments) {
     return async (data: AnyType) => {
       try {
-        const eventData = JSON.parse(data);
+        const eventData = data;
         console.log("[NeverminedService] Event data: ", eventData);
 
         const step = (await payments.query.getStep(
@@ -374,6 +373,7 @@ export class NeverminedService extends BaseService {
       }
     };
   }
+
   public async getPlanCreditBalance(
     planDID: string
   ): Promise<{ agreementId?: string; balance: bigint }> {

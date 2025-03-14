@@ -835,7 +835,7 @@ interface MerchantAgentOutput {
   [key: string]: {
     agentDID: string;
     paymentPlanDID: string;
-    testTokenPlanDID: string;
+    // testTokenPlanDID: string;
     role: string;
   };
 }
@@ -858,11 +858,11 @@ export async function getMerchantAgents(): Promise<MerchantAgentOutput> {
     const planDIDResponse = await getTriples("neverminedPlanId", "%");
     // console.log(`Found ${planDIDResponse.triples.length} plan DIDs`);
 
-    console.log("Fetching test token plan DIDs...");
-    const testTokenPlanDIDResponse = await getTriples(
-      "neverminedPlanIdTestToken",
-      "%"
-    );
+    // console.log("Fetching test token plan DIDs...");
+    // const testTokenPlanDIDResponse = await getTriples(
+    //   "neverminedPlanIdTestToken",
+    //   "%"
+    // );
     // console.log(`Found ${testTokenPlanDIDResponse.triples.length} test token plan DIDs`);
 
     // Group triples by agent name
@@ -915,17 +915,17 @@ export async function getMerchantAgents(): Promise<MerchantAgentOutput> {
     });
 
     // Process test token plan DIDs
-    testTokenPlanDIDResponse.triples.forEach((triple) => {
-      const agentName = triple.subject.value.thing?.name;
-      const testTokenPlanDID = triple.object.value.thing?.name;
-      if (!agentName || !testTokenPlanDID) return;
+    // testTokenPlanDIDResponse.triples.forEach((triple) => {
+    //   const agentName = triple.subject.value.thing?.name;
+    //   const testTokenPlanDID = triple.object.value.thing?.name;
+    //   if (!agentName || !testTokenPlanDID) return;
 
-      if (!agentData.has(agentName)) {
-        agentData.set(agentName, {});
-      }
-      const data = agentData.get(agentName)!;
-      data.testTokenPlanDID = testTokenPlanDID;
-    });
+    //   if (!agentData.has(agentName)) {
+    //     agentData.set(agentName, {});
+    //   }
+    //   const data = agentData.get(agentName)!;
+    //   data.testTokenPlanDID = testTokenPlanDID;
+    // });
 
     // Convert Map to the required output format
     const output: MerchantAgentOutput = {};
@@ -933,13 +933,13 @@ export async function getMerchantAgents(): Promise<MerchantAgentOutput> {
       if (
         data.role === "merchant" &&
         data.agentDID &&
-        data.paymentPlanDID &&
-        data.testTokenPlanDID
+        data.paymentPlanDID
+        // && data.testTokenPlanDID
       ) {
         output[agentName] = {
           agentDID: data.agentDID,
           paymentPlanDID: data.paymentPlanDID,
-          testTokenPlanDID: data.testTokenPlanDID,
+          // testTokenPlanDID: data.testTokenPlanDID,
           role: "merchant",
         };
       } else {
@@ -947,7 +947,7 @@ export async function getMerchantAgents(): Promise<MerchantAgentOutput> {
           role: data.role,
           hasAgentDID: !!data.agentDID,
           hasPlanDID: !!data.paymentPlanDID,
-          hasTestTokenPlanDID: !!data.testTokenPlanDID,
+          // hasTestTokenPlanDID: !!data.testTokenPlanDID,
         });
       }
     });

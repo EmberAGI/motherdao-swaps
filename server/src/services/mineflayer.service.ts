@@ -412,7 +412,7 @@ export class MineflayerService implements IService {
         const merchantDID = nearestMerchant.agentDID;
 
         //using test token plan DID
-        const merchantPaymentPlanDID = nearestMerchant.testTokenPlanDID;
+        const merchantPaymentPlanDID = nearestMerchant.paymentPlanDID;
         console.log(
           "[Mineflayer] Buying logs from merchant:",
           merchantDID,
