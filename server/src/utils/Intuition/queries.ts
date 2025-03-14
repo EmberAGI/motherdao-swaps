@@ -835,6 +835,7 @@ interface MerchantAgentOutput {
   [key: string]: {
     agentDID: string;
     paymentPlanDID: string;
+    testTokenPlanDID: string;
     role: string;
   };
 }
@@ -857,12 +858,20 @@ export async function getMerchantAgents(): Promise<MerchantAgentOutput> {
     const planDIDResponse = await getTriples("neverminedPlanId", "%");
     // console.log(`Found ${planDIDResponse.triples.length} plan DIDs`);
 
+    console.log("Fetching test token plan DIDs...");
+    const testTokenPlanDIDResponse = await getTriples(
+      "neverminedPlanIdTestToken",
+      "%"
+    );
+    // console.log(`Found ${testTokenPlanDIDResponse.triples.length} test token plan DIDs`);
+
     // Group triples by agent name
     const agentData = new Map<
       string,
       {
         agentDID?: string;
         paymentPlanDID?: string;
+        testTokenPlanDID?: string;
         role?: string;
       }
     >();
@@ -905,13 +914,32 @@ export async function getMerchantAgents(): Promise<MerchantAgentOutput> {
       data.paymentPlanDID = planDID;
     });
 
+    // Process test token plan DIDs
+    testTokenPlanDIDResponse.triples.forEach((triple) => {
+      const agentName = triple.subject.value.thing?.name;
+      const testTokenPlanDID = triple.object.value.thing?.name;
+      if (!agentName || !testTokenPlanDID) return;
+
+      if (!agentData.has(agentName)) {
+        agentData.set(agentName, {});
+      }
+      const data = agentData.get(agentName)!;
+      data.testTokenPlanDID = testTokenPlanDID;
+    });
+
     // Convert Map to the required output format
     const output: MerchantAgentOutput = {};
     agentData.forEach((data, agentName) => {
-      if (data.role === "merchant" && data.agentDID && data.paymentPlanDID) {
+      if (
+        data.role === "merchant" &&
+        data.agentDID &&
+        data.paymentPlanDID &&
+        data.testTokenPlanDID
+      ) {
         output[agentName] = {
           agentDID: data.agentDID,
           paymentPlanDID: data.paymentPlanDID,
+          testTokenPlanDID: data.testTokenPlanDID,
           role: "merchant",
         };
       } else {
@@ -919,6 +947,7 @@ export async function getMerchantAgents(): Promise<MerchantAgentOutput> {
           role: data.role,
           hasAgentDID: !!data.agentDID,
           hasPlanDID: !!data.paymentPlanDID,
+          hasTestTokenPlanDID: !!data.testTokenPlanDID,
         });
       }
     });

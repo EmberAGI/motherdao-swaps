@@ -107,6 +107,7 @@ export class MineflayerService implements IService {
           username,
           agentDID: (data as AnyType).agentDID,
           paymentPlanDID: (data as AnyType).paymentPlanDID,
+          testTokenPlanDID: (data as AnyType).testTokenPlanDID,
           role: (data as AnyType).role,
         }));
 
@@ -409,7 +410,9 @@ export class MineflayerService implements IService {
           return;
         }
         const merchantDID = nearestMerchant.agentDID;
-        const merchantPaymentPlanDID = nearestMerchant.paymentPlanDID;
+
+        //using test token plan DID
+        const merchantPaymentPlanDID = nearestMerchant.testTokenPlanDID;
         console.log(
           "[Mineflayer] Buying logs from merchant:",
           merchantDID,
@@ -836,10 +839,38 @@ export class MineflayerService implements IService {
         await this.getBotSmartAccounts();
       } else if (command.startsWith("!sendeth")) {
         console.log("[Mineflayer] Send ETH command received from:", username);
+
+        // Parse command parameters: !sendeth [receiverAddress]
+        const params = message.split(" ").slice(2); // Skip the bot name and command
+        console.log("[Mineflayer] ETH transfer params:", params);
+
+        let receiverAddress;
+
+        // Check if an address parameter is provided
+        if (params.length >= 1 && params[0].startsWith("0x")) {
+          // Validate that the provided address is a valid Ethereum address format
+          try {
+            // ethers.isAddress validates the checksum of the address
+            if (ethers.isAddress(params[0])) {
+              receiverAddress = params[0];
+            } else {
+              this.bot.chat(
+                `Invalid Ethereum address format: ${params[0]}. Using default address instead.`
+              );
+            }
+          } catch (error) {
+            console.error("Error validating Ethereum address:", error);
+            this.bot.chat(
+              `Error validating address. Using default address instead.`
+            );
+          }
+        }
+
         this.bot.chat(
           `ETH Transfer command received from ${username}. Initiating ETH transfer...`
         );
-        await this.transferEth();
+
+        await this.transferEth(receiverAddress);
       } else if (command.startsWith("!senderc20")) {
         console.log("[Mineflayer] Send ERC20 command received from:", username);
 
@@ -918,7 +949,7 @@ Available commands:
 !follow - Bot will follow you around
 !stop - Stop following you
 !help - Display this help message
-!sendeth - Transfer ETH to a specified address
+!sendeth [receiver_address] - Transfer ETH to a specified address (optional, uses default if not provided)
 !senderc20 <token_address> <recipient_address> <amount> - Transfer ERC20 tokens (works with any token!)
     Example: !senderc20 0x036CbD53842c5426634e7929541eC2318f3dCF7e 0xYourAddress 10.5
     The bot will automatically detect token decimals and format the amount correctly.
@@ -1223,23 +1254,26 @@ These accounts are managed by the AccountKit APIs and can be used for various bl
 
   /**
    * Transfers ETH to a specified address on Base Sepolia using the CollabLand AccountKit API
-   * @param address The address to transfer ETH to (defaults to a test address)
+   * @param receiver The address to transfer ETH to (defaults to a test address)
    */
-  public async transferEth(
-    address: string = "0x80815bc5042AEc6B504E81537be214EBDB3b7A60"
-  ) {
+  public async transferEth(receiver?: string) {
     if (!this.bot) return;
 
-    const receiver = "0xA32D31CC8877bB7961D84156EE4dADe6872EBE15";
+    // Use the provided receiver address or the default if not provided
+    const receiverAddress =
+      receiver || "0x80815bc5042AEc6B504E81537be214EBDB3b7A60";
+
+    if (receiver) {
+      console.log(`Using provided receiver address: ${receiverAddress}`);
+    } else {
+      console.log(`Using default receiver address: ${receiverAddress}`);
+    }
+
     const amount = ethers.parseEther("0.001");
-    console.log(
-      `Amount to transfer from ${address} to ${receiver}:`,
-      amount.toString()
-    );
 
     try {
       this.bot.chat(
-        `Initiating ETH transfer to ${receiver} on Base Sepolia...`
+        `Initiating ETH transfer to ${receiverAddress} on Base Sepolia...`
       );
 
       // Create axios client for API requests
@@ -1255,8 +1289,8 @@ These accounts are managed by the AccountKit APIs and can be used for various bl
 
       // Prepare the payload for the transfer operation
       const payload = {
-        target: receiver,
-        value: amount.toString(),
+        target: receiverAddress,
+        value: "0x" + amount.toString(16), // Convert to hex format with 0x prefix
         calldata: "0x", // Empty calldata for simple ETH transfer
       };
 
@@ -1323,7 +1357,7 @@ These accounts are managed by the AccountKit APIs and can be used for various bl
       const message = `
 💸 ETH Transfer Complete:
 
-To: ${receiver}
+To: ${receiverAddress}
 Amount: ${ethers.formatEther(amount)} ETH
 Network: Base Sepolia
 Status: Success ✅
@@ -1332,7 +1366,11 @@ Transaction was executed using CollabLand's AccountKit API.
 `;
 
       this.bot.chat(message);
-      return { receiver, amount: ethers.formatEther(amount), success: true };
+      return {
+        receiver: receiverAddress,
+        amount: ethers.formatEther(amount),
+        success: true,
+      };
     } catch (error) {
       if (isAxiosError(error)) {
         console.error("Failed to transfer ETH:", error.response?.data);
