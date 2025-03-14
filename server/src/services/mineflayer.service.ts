@@ -824,23 +824,23 @@ export class MineflayerService implements IService {
           console.log("[Mineflayer] Invalid platform size");
           this.bot.chat(message);
         }
-      } else if (command === "!mint") {
+      } else if (command.startsWith("!mint")) {
         console.log("[Mineflayer] Mint command received from:", username);
         this.bot.chat(`Mint command received from ${username}...`);
         await this.mintToken();
-      } else if (command === "!accounts") {
+      } else if (command.startsWith("!accounts")) {
         console.log("[Mineflayer] Accounts command received from:", username);
         this.bot.chat(
           `Accounts command received from ${username}. Fetching smart account information...`
         );
         await this.getBotSmartAccounts();
-      } else if (command === "!sendeth") {
+      } else if (command.startsWith("!sendeth")) {
         console.log("[Mineflayer] Send ETH command received from:", username);
         this.bot.chat(
           `ETH Transfer command received from ${username}. Initiating ETH transfer...`
         );
         await this.transferEth();
-      } else if (command === "!senderc20") {
+      } else if (command.startsWith("!senderc20")) {
         console.log("[Mineflayer] Send ERC20 command received from:", username);
 
         // Parse command parameters: !senderc20 [tokenAddress] [recipientAddress] [amount]
@@ -861,9 +861,42 @@ export class MineflayerService implements IService {
           // Check if the amount is a valid number
           const parsedAmount = parseFloat(params[2]);
           if (!isNaN(parsedAmount) && parsedAmount > 0) {
-            // Convert to smallest unit (assuming 6 decimals for simplicity)
-            // For proper handling, we would need to query the token's decimals
-            amount = (parsedAmount * 1000000).toString();
+            // Get token info to determine the correct decimals
+            try {
+              // Check if tokenAddress is defined before proceeding
+              if (tokenAddress) {
+                const tokenInfo = await this.getTokenInfo(tokenAddress);
+                console.log(
+                  `Retrieved token info for conversion: ${JSON.stringify(tokenInfo)}`
+                );
+
+                // Convert the human-readable amount to the token's smallest unit using ethers.parseUnits
+                // This avoids scientific notation issues
+                amount = ethers
+                  .parseUnits(parsedAmount.toString(), tokenInfo.decimals)
+                  .toString();
+                console.log(
+                  `Converted ${parsedAmount} to ${amount} based on ${tokenInfo.decimals} decimals`
+                );
+              } else {
+                // If no token address provided, use default 18 decimals
+                amount = ethers
+                  .parseUnits(parsedAmount.toString(), 18)
+                  .toString();
+                console.log(
+                  `No token address provided, using default 18 decimals`
+                );
+              }
+            } catch (error) {
+              console.error("Error getting token decimals:", error);
+              // Fallback to 18 decimals (most common)
+              amount = ethers
+                .parseUnits(parsedAmount.toString(), 18)
+                .toString();
+              console.log(
+                `Fallback: converted ${parsedAmount} using default 18 decimals`
+              );
+            }
           }
         }
 
@@ -872,7 +905,7 @@ export class MineflayerService implements IService {
         );
 
         await this.transferERC20(tokenAddress, recipientAddress, amount);
-      } else if (command === "!help") {
+      } else if (command.startsWith("!help")) {
         console.log("[Mineflayer] Help command received from:", username);
         const helpMessage = `
 Available commands:
@@ -886,11 +919,13 @@ Available commands:
 !stop - Stop following you
 !help - Display this help message
 !sendeth - Transfer ETH to a specified address
-!senderc20 [token_address] [recipient_address] [amount] - Transfer ERC20 tokens
+!senderc20 <token_address> <recipient_address> <amount> - Transfer ERC20 tokens (works with any token!)
+    Example: !senderc20 0x036CbD53842c5426634e7929541eC2318f3dCF7e 0xYourAddress 10.5
+    The bot will automatically detect token decimals and format the amount correctly.
 !recieve - Request ERC20 tokens from CharlieBot on Base Sepolia
 `;
         this.bot.chat(helpMessage);
-      } else if (command === "!come") {
+      } else if (command.startsWith("!come")) {
         console.log("[Mineflayer] Come command received from:", username);
         this.bot.chat(`Come command received from ${username}...`);
         const player = this.bot.players[username];
@@ -910,38 +945,34 @@ Available commands:
           { depth: null }
         );
         await this.moveToPlayer(player.entity.position);
-      } else if (command === "!follow") {
+      } else if (command.startsWith("!follow")) {
         console.log("[Mineflayer] Follow command received from:", username);
         this.bot.chat(`Follow command received from ${username}...`);
         await this.startFollowing(username);
-      } else if (command === "!stopfollow") {
+      } else if (command.startsWith("!stopfollow")) {
         console.log(
           "[Mineflayer] Stop follow command received from:",
           username
         );
         this.bot.chat(`Stop follow command received from ${username}...`);
         this.stopFollowing();
-      } else if (command === "!throw") {
+      } else if (command.startsWith("!throw")) {
         console.log("[Mineflayer] Throw command received from:", username);
         this.bot.chat(`Throw command received from ${username}...`);
         await this.throwLogs(username);
-      } else if (command === "!info") {
+      } else if (command.startsWith("!info")) {
         console.log("[Mineflayer] Info command received from:", username);
         this.bot.chat(`Info command received from ${username}...`);
         const botInfo = await this.getBotInfo();
         console.log("[Mineflayer] Bot info:", botInfo);
         this.bot.chat(JSON.stringify(botInfo, null, 2));
-      } else if (command === "!send") {
-        console.log("[Mineflayer] Send command received from:", username);
-        this.bot.chat(`Send command received from ${username}...`);
-        // await this.sendLogs(username);
-      } else if (command === "!recieve") {
+      } else if (command.startsWith("!recieve")) {
         console.log("[Mineflayer] Recieve command received from:", username);
         this.bot.chat(
           `Recieve command received from ${username}. Requesting ERC20 tokens from CharlieBot...`
         );
         await this.requestTokensFromCharlieBot();
-      } else if (command === "!tg") {
+      } else if (command.startsWith("!tg")) {
         console.log("[Mineflayer] Tg command received from:", username);
         this.bot.chat(
           `Tg command received from ${username}. Requesting Telegram bot...`
@@ -1323,6 +1354,71 @@ Transaction was executed using CollabLand's AccountKit API.
   }
 
   /**
+   * Fetches ERC20 token information (decimals and symbol)
+   * @param tokenAddress The address of the ERC20 token
+   * @returns An object containing token decimals and symbol
+   */
+  private async getTokenInfo(
+    tokenAddress: string
+  ): Promise<{ decimals: number; symbol: string }> {
+    try {
+      // Create minimal interfaces for token queries
+      const decimalInterface = new ethers.Interface([
+        "function decimals() view returns (uint8)",
+      ]);
+
+      const symbolInterface = new ethers.Interface([
+        "function symbol() view returns (string)",
+      ]);
+
+      // Create a provider for Base Sepolia
+      const provider = new ethers.JsonRpcProvider(
+        `${process.env.BASE_SEPOLIA_RPC_URL}` || "https://sepolia.base.org"
+      );
+
+      // Encode the function calls
+      const decimalCalldata = decimalInterface.encodeFunctionData(
+        "decimals",
+        []
+      );
+      const symbolCalldata = symbolInterface.encodeFunctionData("symbol", []);
+
+      // Execute the calls
+      const decimalResult = await provider.call({
+        to: tokenAddress,
+        data: decimalCalldata,
+      });
+
+      const symbolResult = await provider.call({
+        to: tokenAddress,
+        data: symbolCalldata,
+      });
+
+      // Decode the results
+      const decimals = decimalInterface.decodeFunctionResult(
+        "decimals",
+        decimalResult
+      )[0];
+      const symbol = symbolInterface.decodeFunctionResult(
+        "symbol",
+        symbolResult
+      )[0];
+
+      return {
+        decimals: Number(decimals),
+        symbol: symbol,
+      };
+    } catch (error) {
+      console.error(`Failed to fetch token info for ${tokenAddress}:`, error);
+      // Default fallbacks
+      return {
+        decimals: 18, // Most tokens use 18 decimals as standard
+        symbol: "ERC20",
+      };
+    }
+  }
+
+  /**
    * Transfers ERC20 tokens from the bot's account to a recipient using CollabLand's AccountKit API
    * @param tokenAddress The address of the ERC20 token to transfer
    * @param recipientAddress The address of the recipient to transfer tokens to
@@ -1340,6 +1436,24 @@ Transaction was executed using CollabLand's AccountKit API.
       this.bot.chat(
         `Initiating ERC20 token transfer to ${recipientAddress} on Base Sepolia...`
       );
+
+      // Fetch token info (decimals and symbol)
+      const tokenInfo = await this.getTokenInfo(tokenAddress);
+      console.log(`Token info for ${tokenAddress}:`, tokenInfo);
+
+      // Ensure amount is in a valid format for BigInt conversion
+      // If it contains scientific notation, convert it to a proper string
+      if (amount.includes("e") || amount.includes("E")) {
+        const parsed = parseFloat(amount);
+        if (!isNaN(parsed)) {
+          // Use ethers.parseUnits to correctly format the amount
+          const humanReadableAmount = parsed / 10 ** tokenInfo.decimals;
+          amount = ethers
+            .parseUnits(humanReadableAmount.toString(), tokenInfo.decimals)
+            .toString();
+          console.log(`Reformatted scientific notation amount to: ${amount}`);
+        }
+      }
 
       // Create axios client for API requests
       const client = axios.create({
@@ -1433,22 +1547,16 @@ Transaction was executed using CollabLand's AccountKit API.
         return;
       }
 
-      // Format token amount with proper decimals (assuming 6 decimals for USDC)
-      const formattedAmount =
-        tokenAddress === "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
-          ? (BigInt(amount) / BigInt(10 ** 6)).toString() // 6 decimals for USDC
-          : amount; // Use raw amount for other tokens
-
-      const tokenSymbol =
-        tokenAddress === "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
-          ? "USDC"
-          : "ERC20";
+      // Format token amount with proper decimals using the fetched token decimals
+      const formattedAmount = (
+        BigInt(amount) / BigInt(10 ** tokenInfo.decimals)
+      ).toString();
 
       const message = `
 💸 ERC20 Token Transfer Complete:
 
 To: ${recipientAddress}
-Amount: ${formattedAmount} ${tokenSymbol}
+Amount: ${formattedAmount} ${tokenInfo.symbol}
 Token: ${tokenAddress}
 Network: Base Sepolia
 Status: Success ✅
@@ -1462,7 +1570,8 @@ Transaction was executed using CollabLand's AccountKit API.
         recipient: recipientAddress,
         amount: formattedAmount,
         token: tokenAddress,
-        tokenSymbol,
+        tokenSymbol: tokenInfo.symbol,
+        tokenDecimals: tokenInfo.decimals,
         txHash: receipt.receipt?.transactionHash,
         success: true,
       };
