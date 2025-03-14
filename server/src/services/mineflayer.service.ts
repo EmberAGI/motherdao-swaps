@@ -1842,7 +1842,7 @@ Transaction was executed using CollabLand's AccountKit API.
 
       // Format: @CharlieBot !senderc20 [tokenAddress] [recipientAddress] [amount]
       // Request a small amount of tokens (1 USDC)
-      const amount = "1";
+      const amount = "1000";
       const message = `@${charlieBot} !senderc20 ${tokenAddress} ${walletAddress} ${amount}`;
 
       this.bot.chat(`Requesting ${amount} USDC from ${charlieBot}...`);

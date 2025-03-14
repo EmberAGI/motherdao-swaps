@@ -10,17 +10,20 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3001
-      - MINECRAFT_USERNAME=BobBot
+      - MINECRAFT_USERNAME=BobBuilder
       # For Linux, use the special Docker DNS name
       - MINECRAFT_HOST=host.docker.internal
       # Use the IP address of the host machine
       # - MINECRAFT_HOST=Purringbeatle.aternos.me
       - MINECRAFT_ROLE=builder
-      - NEVERMINED_API_KEY=${BOB_NEVERMINED_API_KEY}
-      - PRIVATE_KEY=${BOB_PRIVATE_KEY}
-      - NEVERMINED_AGENT_DID=${BOB_NEVERMINED_AGENT_DID}
-      - NEVERMINED_PAYMENT_PLAN_DID=${BOB_NEVERMINED_PAYMENT_PLAN_DID}
       - MINECRAFT_VERSION=1.20
+      - MINECRAFT_PORT=25565
+
+      - NEVERMINED_API_KEY=${BOB_NEVERMINED_API_KEY}
+      - COLLABLAND_API_KEY=${COLLABLAND_API_KEY}
+      - TELEGRAM_BOT_TOKEN=${BOB_TELEGRAM_BOT_TOKEN}
+      - PRIVATE_KEY=${BOB_PRIVATE_KEY}
+      - BASE_SEPOLIA_RPC_URL=${BASE_SEPOLIA_RPC_URL}
     ports:
       - '3001:3001'
     volumes:
@@ -42,17 +45,19 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3002
-      - MINECRAFT_USERNAME=AliceBot
+      - MINECRAFT_USERNAME=AliceMerchant
       # For Linux, use the special Docker DNS name
       - MINECRAFT_HOST=host.docker.internal
       # Use the IP address of the host machine
       # - MINECRAFT_HOST=Purringbeatle.aternos.me
       - MINECRAFT_ROLE=merchant
+      - MINECRAFT_VERSION=1.20
+      - MINECRAFT_PORT=25565
       - NEVERMINED_API_KEY=${ALICE_NEVERMINED_API_KEY}
       - PRIVATE_KEY=${ALICE_PRIVATE_KEY}
-      - NEVERMINED_AGENT_DID=${ALICE_NEVERMINED_AGENT_DID}
-      - NEVERMINED_PAYMENT_PLAN_DID=${ALICE_NEVERMINED_PAYMENT_PLAN_DID}
-      - MINECRAFT_VERSION=1.20
+      - COLLABLAND_API_KEY=${COLLABLAND_API_KEY}
+      - TELEGRAM_BOT_TOKEN=${ALICE_TELEGRAM_BOT_TOKEN}
+      - BASE_SEPOLIA_RPC_URL=${BASE_SEPOLIA_RPC_URL}
     ports:
       - '3002:3002'
     volumes:
