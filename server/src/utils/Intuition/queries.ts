@@ -937,6 +937,7 @@ export async function getMerchantAgents(): Promise<MerchantAgentOutput> {
 interface AgentNeverminedIdentifiers {
   agentDID: string | null;
   planDID: string | null;
+  testTokenPlanDID: string | null;
   error?: string;
 }
 
@@ -953,28 +954,66 @@ export async function getAgentDIDs(
 
     // Fetch agent DID
     const agentDIDResponse = await getTriples("neverminedAgentId", "%");
-    const agentDIDTriple = agentDIDResponse.triples.find(
+    // Get all matching triples and take the last one
+    const matchingAgentTriples = agentDIDResponse.triples.filter(
       (triple) => triple.subject.value.thing?.name === agentName
     );
+
+    const agentDIDTriple =
+      matchingAgentTriples.length > 0
+        ? matchingAgentTriples[matchingAgentTriples.length - 1]
+        : undefined;
 
     // Fetch plan DID
     const planDIDResponse = await getTriples("neverminedPlanId", "%");
-    const planDIDTriple = planDIDResponse.triples.find(
+    console.log(
+      `[Intuition] Found ${planDIDResponse.triples.length} total plan DID triples`
+    );
+
+    // Get all matching triples and take the last one
+    const matchingPlanTriples = planDIDResponse.triples.filter(
       (triple) => triple.subject.value.thing?.name === agentName
     );
 
-    if (!agentDIDTriple && !planDIDTriple) {
+    const planDIDTriple =
+      matchingPlanTriples.length > 0
+        ? matchingPlanTriples[matchingPlanTriples.length - 1]
+        : undefined;
+
+    // Fetch test token plan DID
+    const testTokenPlanDIDResponse = await getTriples(
+      "neverminedPlanIdTestToken",
+      "%"
+    );
+    // Get all matching triples and take the last one
+    const matchingTestTokenTriples = testTokenPlanDIDResponse.triples.filter(
+      (triple) => triple.subject.value.thing?.name === agentName
+    );
+
+    const testTokenPlanDIDTriple =
+      matchingTestTokenTriples.length > 0
+        ? matchingTestTokenTriples[matchingTestTokenTriples.length - 1]
+        : undefined;
+
+    if (!agentDIDTriple && !planDIDTriple && !testTokenPlanDIDTriple) {
+      console.log(`[Intuition] No DIDs found for agent: ${agentName}`);
       return {
         agentDID: null,
         planDID: null,
+        testTokenPlanDID: null,
         error: `No DIDs found for agent: ${agentName}`,
       };
     }
 
-    return {
+    const result = {
       agentDID: agentDIDTriple?.object.value.thing?.name || null,
       planDID: planDIDTriple?.object.value.thing?.name || null,
+      testTokenPlanDID:
+        testTokenPlanDIDTriple?.object.value.thing?.name || null,
     };
+
+    console.log(`[Intuition] Final DIDs for ${agentName}:`, result);
+    return result;
   } catch (error) {
     console.error(
       `[Intuition] Error fetching DIDs for agent ${agentName}:`,
@@ -983,6 +1022,7 @@ export async function getAgentDIDs(
     return {
       agentDID: null,
       planDID: null,
+      testTokenPlanDID: null,
       error: error instanceof Error ? error.message : "Unknown error occurred",
     };
   }

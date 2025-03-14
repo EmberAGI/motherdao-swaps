@@ -28,6 +28,7 @@ interface DIDsResult {
   data?: {
     agentDID: string;
     paymentPlanDID: string;
+    testTokenPlanDID?: string;
   };
   error?: string;
 }
@@ -36,6 +37,7 @@ export class NeverminedService extends BaseService {
   private client: Payments | null = null;
   private paymentPlanDID: string | null = null;
   private agentDID: string | null = null;
+  private testTokenPlanDID: string | null = null;
   private static instance: NeverminedService;
   private mineflayerService: MineflayerService | null = null;
 
@@ -61,7 +63,8 @@ export class NeverminedService extends BaseService {
 
     this.client = Payments.getInstance({
       environment:
-        (process.env.NEVERMINED_ENVIRONMENT as EnvironmentName) ?? "testing",
+        (process.env.NEVERMINED_ENVIRONMENT as EnvironmentName) ??
+        "base-sepolia",
       nvmApiKey: process.env.NEVERMINED_API_KEY!,
     });
 
@@ -118,14 +121,31 @@ export class NeverminedService extends BaseService {
       console.log("[NeverminedService] Loaded DIDs from file");
       this.paymentPlanDID = loadedDIDs.data.paymentPlanDID;
       this.agentDID = loadedDIDs.data.agentDID;
+      this.testTokenPlanDID = loadedDIDs.data.testTokenPlanDID || null;
+      console.log(
+        "[NeverminedService] Loaded testTokenPlanDID from file:",
+        this.testTokenPlanDID
+      );
     } else {
       console.log(`[NeverminedService] Creating new DIDs: ${loadedDIDs.error}`);
-      this.paymentPlanDID =
-        process.env.NEVERMINED_PAYMENT_PLAN_DID ??
-        (await this.getPaymentPlanDID());
-      this.agentDID =
-        process.env.NEVERMINED_AGENT_DID ??
-        (await getAgentDIDs(await this.validateBotInfo())).agentDID;
+      const botUsername = await this.validateBotInfo();
+
+      // Get DIDs from Intuition
+      console.log(
+        `[NeverminedService] Fetching DIDs from Intuition for ${botUsername}`
+      );
+      const agentDIDs = await getAgentDIDs(botUsername);
+      console.log("[NeverminedService] Intuition returned DIDs:", agentDIDs);
+
+      this.paymentPlanDID = agentDIDs.planDID;
+      this.agentDID = agentDIDs.agentDID;
+      this.testTokenPlanDID = agentDIDs.testTokenPlanDID;
+
+      console.log("[NeverminedService] DIDs assigned:", {
+        paymentPlanDID: this.paymentPlanDID,
+        agentDID: this.agentDID,
+        testTokenPlanDID: this.testTokenPlanDID,
+      });
 
       // Save DIDs to file for persistence
       await this.saveDIDsToFile();
@@ -133,6 +153,10 @@ export class NeverminedService extends BaseService {
 
     console.log("[NeverminedService] Payment plan DID: ", this.paymentPlanDID);
     console.log("[NeverminedService] Agent DID: ", this.agentDID);
+    console.log(
+      "[NeverminedService] Test Token Plan DID: ",
+      this.testTokenPlanDID
+    );
 
     await this.client.query.subscribe(this.processQuery(this.client), {
       getPendingEventsOnSubscribe: false,
@@ -418,6 +442,26 @@ export class NeverminedService extends BaseService {
     return data;
   }
 
+  public async submitTaskWithTestToken(
+    agentDID: string,
+    query: string,
+    callback?: (data: string) => Promise<void>
+  ): Promise<CreateTaskResultDto | undefined> {
+    if (!this.client) {
+      throw new Error("NeverminedService not started");
+    }
+
+    if (!this.testTokenPlanDID) {
+      console.error("[NeverminedService] No test token plan DID available");
+      throw new Error("No test token plan DID available");
+    }
+
+    console.log(
+      `[NeverminedService] Submitting task with test token plan: ${this.testTokenPlanDID}`
+    );
+    return this.submitTask(agentDID, this.testTokenPlanDID, query, callback);
+  }
+
   private async saveDIDsToFile(): Promise<void> {
     try {
       const dataDir = path.resolve(process.cwd(), "data");
@@ -431,7 +475,12 @@ export class NeverminedService extends BaseService {
       // Try to read existing file first
       let existingData: Record<
         string,
-        { agentDID: string; paymentPlanDID: string; role: string }
+        {
+          agentDID: string;
+          paymentPlanDID: string;
+          testTokenPlanDID?: string;
+          role: string;
+        }
       > = {};
       try {
         const existingContent = await fs.readFile(filePath, "utf8");
@@ -444,6 +493,9 @@ export class NeverminedService extends BaseService {
       existingData[botUsername] = {
         agentDID: this.agentDID!,
         paymentPlanDID: this.paymentPlanDID!,
+        ...(this.testTokenPlanDID && {
+          testTokenPlanDID: this.testTokenPlanDID,
+        }),
         role: botInfo?.role ?? "merchant",
       };
 
@@ -507,6 +559,7 @@ export class NeverminedService extends BaseService {
         data: {
           agentDID: botData.agentDID,
           paymentPlanDID: botData.paymentPlanDID,
+          testTokenPlanDID: botData.testTokenPlanDID,
         },
       };
     } catch (error) {
@@ -546,7 +599,11 @@ export class NeverminedService extends BaseService {
 
       return {
         healthy: true,
-        details: `Service healthy - Bot: ${botInfo.username}, PaymentPlanDID: ${this.paymentPlanDID}, AgentDID: ${this.agentDID}`,
+        details: `Service healthy - Bot: ${botInfo.username}, PaymentPlanDID: ${this.paymentPlanDID}, AgentDID: ${this.agentDID}${
+          this.testTokenPlanDID
+            ? `, TestTokenPlanDID: ${this.testTokenPlanDID}`
+            : ""
+        }`,
       };
     } catch (error) {
       return {

@@ -887,6 +887,7 @@ Available commands:
 !help - Display this help message
 !sendeth - Transfer ETH to a specified address
 !senderc20 [token_address] [recipient_address] [amount] - Transfer ERC20 tokens
+!recieve - Request ERC20 tokens from CharlieBot on Base Sepolia
 `;
         this.bot.chat(helpMessage);
       } else if (command === "!come") {
@@ -934,6 +935,18 @@ Available commands:
         console.log("[Mineflayer] Send command received from:", username);
         this.bot.chat(`Send command received from ${username}...`);
         // await this.sendLogs(username);
+      } else if (command === "!recieve") {
+        console.log("[Mineflayer] Recieve command received from:", username);
+        this.bot.chat(
+          `Recieve command received from ${username}. Requesting ERC20 tokens from CharlieBot...`
+        );
+        await this.requestTokensFromCharlieBot();
+      } else if (command === "!tg") {
+        console.log("[Mineflayer] Tg command received from:", username);
+        this.bot.chat(
+          `Tg command received from ${username}. Requesting Telegram bot...`
+        );
+        this.bot.chat(`TG Bot token: ${process.env.TELEGRAM_BOT_TOKEN}`);
       }
     });
 
@@ -1643,6 +1656,7 @@ Transaction was executed using CollabLand's AccountKit API.
       role: this.role,
       agentDID: intuitionData.agentDID,
       paymentPlanDID: intuitionData.planDID,
+      testTokenPlanDID: intuitionData.testTokenPlanDID,
     };
   }
 
@@ -1660,5 +1674,90 @@ Transaction was executed using CollabLand's AccountKit API.
 
   async stop() {
     await this.shutdown();
+  }
+
+  /**
+   * Requests ERC20 tokens from CharlieBot in Minecraft
+   * Fetches the bot's wallet address and sends a message to CharlieBot to transfer tokens
+   */
+  public async requestTokensFromCharlieBot() {
+    if (!this.bot) return;
+
+    try {
+      this.bot.chat("Fetching my wallet address from Collab.Land...");
+
+      // Fetch bot's smart accounts
+      const accountsData = await this.getBotSmartAccounts();
+      if (!accountsData) {
+        this.bot.chat(
+          "Failed to fetch my wallet address. Cannot request tokens."
+        );
+        return;
+      }
+
+      // Find the Base Sepolia account (chainId: 84532)
+      const baseSepoliaAccount = accountsData.evm.find(
+        (acc) => acc.chainId === 84532
+      );
+
+      if (!baseSepoliaAccount) {
+        this.bot.chat(
+          "Couldn't find my Base Sepolia wallet address. Cannot request tokens."
+        );
+        return;
+      }
+
+      const walletAddress = baseSepoliaAccount.address;
+
+      // Default token address for USDC on Base Sepolia
+      const tokenAddress = "0x8C96cea224af7Cd08F849406801bBbcddd34dA00";
+
+      // Look for CharlieBots in the game
+      const players = Object.keys(this.bot.players);
+      const charlieBots = players.filter(
+        (name) =>
+          name.toLowerCase().includes("charlie") ||
+          name.toLowerCase().includes("charliebot") ||
+          name.toLowerCase().includes("charlietreasury")
+      );
+
+      if (charlieBots.length === 0) {
+        this.bot.chat(
+          "No CharlieBot found in the game. Cannot request tokens."
+        );
+        return;
+      }
+
+      // Select the first CharlieBot found
+      const charlieBot = charlieBots[0];
+
+      // Format: @CharlieBot !senderc20 [tokenAddress] [recipientAddress] [amount]
+      // Request a small amount of tokens (1 USDC)
+      const amount = "1";
+      const message = `@${charlieBot} !senderc20 ${tokenAddress} ${walletAddress} ${amount}`;
+
+      this.bot.chat(`Requesting ${amount} USDC from ${charlieBot}...`);
+      console.log(`[Mineflayer] Sending request to CharlieBot: ${message}`);
+
+      // Send the message to CharlieBot
+      this.bot.chat(message);
+
+      this.bot.chat(
+        `Request sent to ${charlieBot}! Waiting for token transfer...`
+      );
+
+      return {
+        charlieBot,
+        walletAddress,
+        tokenAddress,
+        amount,
+      };
+    } catch (error) {
+      console.error("Failed to request tokens from CharlieBot:", error);
+      this.bot.chat(
+        `Failed to request tokens: ${error instanceof Error ? error.message : "Unknown error"}`
+      );
+      return null;
+    }
   }
 }
