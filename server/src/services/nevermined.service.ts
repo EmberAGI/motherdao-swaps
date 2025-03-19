@@ -14,7 +14,7 @@ import { parseUnits } from "ethers";
 import * as path from "path";
 import * as fs from "fs/promises";
 import { AnyType } from "src/utils.js";
-import EmberClient, { OrderType } from "@emberai/sdk-typescript";
+import { EmberGrpcClient, OrderType } from "@emberai/sdk-typescript";
 
 //FIXME: Remove once Nevermined SDK is updated
 interface NeverminedStep extends Step {
@@ -322,13 +322,14 @@ export class NeverminedService extends BaseService {
             message: `Data fetched: ${JSON.stringify(payload)}`,
           });
 
-          console.log("[NeverminedService] EMBER_ENDPOINT: ", process.env.EMBER_ENDPOINT);
+          console.log(
+            "[NeverminedService] EMBER_ENDPOINT: ",
+            process.env.EMBER_ENDPOINT
+          );
 
-          const client = new EmberClient({
-            endpoint:
-              process.env.EMBER_ENDPOINT || "grpc.api.emberai.xyz:50051",
-            apiKey: process.env.EMBER_API_KEY,
-          });
+          const client = new EmberGrpcClient(
+            process.env.EMBER_ENDPOINT || "grpc.api.emberai.xyz:50051"
+          );
 
           const swapTokenRequest = {
             orderType: OrderType.MARKET_BUY,
