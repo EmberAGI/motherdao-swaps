@@ -1,12 +1,12 @@
-import express, { NextFunction, Request, Response } from "express";
+import express, { Request, Response } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import helloRouter from "./routes/hello.js";
 import { resolve } from "path";
 import { fileURLToPath } from "url";
 import { dirname } from "path";
-import { NgrokService } from "./services/ngrok.service.js";
-import { TelegramService } from "./services/telegram.service.js";
+// import { NgrokService } from "./services/ngrok.service.js";
+// import { TelegramService } from "./services/telegram.service.js";
 import { IService } from "./services/base.service.js";
 import twitterRouter from "./routes/twitter.js";
 import discordRouter from "./routes/discord.js";
@@ -14,6 +14,8 @@ import cookieParser from "cookie-parser";
 import githubRouter from "./routes/github.js";
 import { AnyType } from "./utils.js";
 import { isHttpError } from "http-errors";
+import { MineflayerService } from "./services/mineflayer.service.js";
+import minecraftRouter from "./routes/minecraft.js";
 import { NeverminedService } from "./services/nevermined.service.js";
 
 // Convert ESM module URL to filesystem path
@@ -30,7 +32,7 @@ dotenv.config({
 
 // Initialize Express app
 const app = express();
-const port = process.env.PORT || 3002;
+const port = process.env.PORT || 3001;
 
 // Configure CORS with ALL allowed origins
 app.use(cors());
@@ -43,10 +45,10 @@ app.use(cookieParser());
 app.use("/hello", helloRouter);
 
 // Initialize Telegram bot service
-const telegramService = TelegramService.getInstance();
+// const telegramService = TelegramService.getInstance();
 
 // Mount Telegram webhook endpoint
-app.use("/telegram/webhook", telegramService.getWebhookCallback());
+// app.use("/telegram/webhook", telegramService.getWebhookCallback());
 
 // Mount Twitter OAuth routes
 app.use("/auth/twitter", twitterRouter);
@@ -57,14 +59,22 @@ app.use("/auth/discord", discordRouter);
 // Mount GitHub OAuth routes
 app.use("/auth/github", githubRouter);
 
+// Mount Minecraft routes
+app.use("/minecraft", minecraftRouter);
+
+// Define a route for the root path
+app.get("/", (_req, res) => {
+  res.send("Hello from Express.js!");
+});
+
 // 404 handler
-app.use((_req: Request, _res: Response, _next: NextFunction) => {
+app.use((_req: Request, _res: Response) => {
   _res.status(404).json({
-    message: `Route ${_req.method} ${_req.url} not found`,
+    message: `Route not found`,
   });
 });
 
-app.use((_err: AnyType, _req: Request, _res: Response, _next: NextFunction) => {
+app.use((_err: AnyType, _req: Request, _res: Response) => {
   if (isHttpError(_err)) {
     _res.status(_err.statusCode).json({
       message: _err.message,
@@ -87,26 +97,30 @@ app.listen(port, async () => {
     console.log("Server Environment:", process.env.NODE_ENV);
 
     // Start ngrok tunnel for development
-    const ngrokService = NgrokService.getInstance();
-    await ngrokService.start();
-    services.push(ngrokService);
+    // const ngrokService = NgrokService.getInstance();
+    // await ngrokService.start();
+    // services.push(ngrokService);
 
-    const ngrokUrl = ngrokService.getUrl()!;
-    console.log("NGROK URL:", ngrokUrl);
+    // const ngrokUrl = ngrokService.getUrl()!;
+    // console.log("NGROK URL:", ngrokUrl);
 
     // Initialize Telegram bot and set webhook
-    await telegramService.start();
-    await telegramService.setWebhook(ngrokUrl);
-    services.push(telegramService);
+    // await telegramService.start();
+    // await telegramService.setWebhook(ngrokUrl);
+    // services.push(telegramService);
 
-    const botInfo = await telegramService.getBotInfo();
-    console.log("Telegram Bot URL:", `https://t.me/${botInfo.username}`);
+    // const botInfo = await telegramService.getBotInfo();
+    // console.log("Telegram Bot URL:", `https://t.me/${botInfo.username}`);
 
-    if (process.env.NEVERMINED_API_KEY) {
-      const neverminedService = await NeverminedService.getInstance();
-      await neverminedService.start();
-      services.push(neverminedService);
-    }
+    // Initialize Mineflayer service
+    const mineflayerService = MineflayerService.getInstance();
+    await mineflayerService.start();
+    services.push(mineflayerService);
+
+    // Initialize Nevermined service
+    const neverminedService = NeverminedService.getInstance();
+    await neverminedService.start();
+    services.push(neverminedService);
   } catch (e) {
     console.error("Failed to start server:", e);
     process.exit(1);

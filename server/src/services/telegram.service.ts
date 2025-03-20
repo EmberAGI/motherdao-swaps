@@ -15,13 +15,6 @@ import path, { resolve } from "path";
 import { keccak256, getBytes, toUtf8Bytes } from "ethers";
 import { TwitterService } from "./twitter.service.js";
 import { NgrokService } from "./ngrok.service.js";
-import { NeverminedService } from "./nevermined.service.js";
-import {
-  getAtom,
-  findRelevantAgents,
-  groupAgentsByFunction,
-  getAgentNeverminedData,
-} from "../utils/Intuition/queries.js";
 
 // hack to avoid 400 errors sending params back to telegram. not even close to perfect
 const htmlEscape = (_key: AnyType, val: AnyType) => {
@@ -39,12 +32,11 @@ const htmlEscape = (_key: AnyType, val: AnyType) => {
 const __dirname = path.dirname(new URL(import.meta.url).pathname);
 export class TelegramService extends BaseService {
   private static instance: TelegramService;
-  public bot: Bot;
+  private bot: Bot;
   private webhookUrl: string;
   private elizaService: ElizaService;
   private nGrokService: NgrokService;
   private twitterService?: TwitterService;
-  private neverminedService?: NeverminedService;
 
   private constructor(webhookUrl?: string) {
     super();
@@ -56,7 +48,6 @@ export class TelegramService extends BaseService {
     }
     this.bot = new Bot(process.env.TELEGRAM_BOT_TOKEN);
     this.elizaService = ElizaService.getInstance(this.bot);
-    this.neverminedService = NeverminedService.getInstance();
   }
 
   public static getInstance(webhookUrl?: string): TelegramService {
@@ -98,373 +89,13 @@ export class TelegramService extends BaseService {
         },
         { command: "mint", description: "Mint a token on Wow.xyz" },
         { command: "eliza", description: "Talk to the AI agent" },
-        { command: "lit", description: "Execute a Lit action" },
-        { command: "nevermined", description: "Execute a Nevermined action" },
-        { command: "intuition", description: "Fetch an Intuition atom" },
         {
-          command: "execute",
-          description:
-            "Find an agent, subscribe to its plans, submit a task to it, usage /execute <task_name> <additional_query>",
-        },
-        {
-          command: "fetch_agent_info",
-          description:
-            "Fetch agent Nevermined info, usage /fetch_agent_info <agent_name>",
-        },
-        {
-          command: "find_agents",
-          description: "Find agents by function, usage /find_agents <function>",
-        },
-        {
-          command: "purchase_plan",
-          description:
-            "Purchase a plan on Nevermined, usage /command <plan_did>",
-        },
-        {
-          command: "submit_task",
-          description:
-            "Submit a task to an agent's plan on Nevermined, usage /command <agent_did> <plan_did>",
-        },
-        {
-          command: "nvm_balance",
-          description: "Get the plan balance on Nevermined",
+          command: "lit",
+          description: "Execute a Lit action, usage: /lit hello-action",
         },
       ]);
       // all command handlers can be registered here
-      this.bot.command("start", async (ctx) => {
-        try {
-          await ctx.reply("Hello!");
-        } catch (error) {
-          console.error("Error in start command:", error);
-          await ctx.reply("❌ Failed to send welcome message");
-        }
-      });
-
-      this.bot.command("nvm_balance", async (ctx) => {
-        try {
-          const chatId = ctx.chat?.id;
-          console.log("Chat ID:", chatId);
-          const balance = await this.neverminedService?.getPlanCreditBalance();
-          await ctx.reply(`💰 Plan balance: ${balance} credits`);
-        } catch (error) {
-          console.error("Error in nvm_balance command:", error);
-          await ctx.reply("❌ Failed to fetch Nevermined plan balance");
-        }
-      });
-
-      this.bot.command("purchase_plan", async (ctx) => {
-        try {
-          const planDID = ctx.message?.text.split(" ")[1] ?? "";
-          if (!planDID) {
-            await ctx.reply(
-              "Please provide a plan DID. Usage: /purchase_plan <plan_did>"
-            );
-            return;
-          }
-
-          await ctx.reply(`🔄 Purchasing plan: ${planDID}`);
-          const balance = await this.neverminedService?.purchasePlan(planDID);
-
-          if (!balance) {
-            throw new Error("Failed to purchase plan");
-          }
-
-          await ctx.reply(
-            `✅ Plan purchased successfully! ${balance} credits remaining`
-          );
-        } catch (error) {
-          console.error("Error in purchase_plan command:", error);
-          await ctx.reply(
-            `❌ Error: ${error.message || "Failed to purchase plan"}`
-          );
-        }
-      });
-
-      this.bot.command("submit_task", async (ctx) => {
-        try {
-          const agentDID = ctx.message?.text.split(" ")[1] ?? "";
-          const planDID = ctx.message?.text.split(" ")[2] ?? "";
-
-          if (!agentDID || !planDID) {
-            await ctx.reply("Usage: /submit_task <agent_did> <plan_did>");
-            return;
-          }
-
-          await ctx.reply(
-            `🔄 Submitting task to agent:\nAgent DID: ${agentDID}\nPlan DID: ${planDID}`
-          );
-
-          const query = `hello-demo-agent-${Date.now()}`;
-          await this.neverminedService?.submitTaskDynamically(
-            agentDID,
-            planDID,
-            query,
-            undefined,
-            async (result: unknown) => {
-              let formattedResult = result;
-              // Try to parse and format if result is JSON string
-              try {
-                if (typeof result === "string") {
-                  formattedResult = JSON.parse(result);
-                }
-                await ctx.reply(
-                  `✅ Task completed!\n\nResult:\n<pre><code>${JSON.stringify(formattedResult, null, 2)}</code></pre>`,
-                  { parse_mode: "HTML" }
-                );
-              } catch {
-                // If parsing fails, send as plain text
-                await ctx.reply(`✅ Task completed!\n\nResult: ${result}`);
-              }
-            }
-          );
-        } catch (error) {
-          console.error("Error in submit_task command:", error);
-          await ctx.reply(
-            `❌ Error: ${error.message || "Failed to submit task"}`
-          );
-        }
-      });
-
-      this.bot.command("intuition", async (ctx) => {
-        try {
-          const atomId = ctx.message?.text.split(" ")[1] ?? "";
-
-          if (!atomId || isNaN(parseInt(atomId))) {
-            await ctx.reply(
-              "Please provide a valid atom ID. Usage: /intuition <atom_id>"
-            );
-            return;
-          }
-
-          await ctx.reply(`🔍 Fetching Intuition atom: ${atomId}`);
-          const atom = await getAtom(parseInt(atomId));
-
-          if (!atom) {
-            throw new Error("Atom not found");
-          }
-
-          await ctx.reply(
-            `✨ Atom details:\n<pre><code>${JSON.stringify(atom, null, 2)}</code></pre>`,
-            { parse_mode: "HTML" }
-          );
-        } catch (error) {
-          console.error("Error in intuition command:", error);
-          await ctx.reply(
-            `❌ Error: ${error.message || "Failed to fetch atom"}`
-          );
-        }
-      });
-
-      this.bot.command("execute", async (ctx) => {
-        const taskName = ctx.message?.text.split(" ")[1] ?? "";
-        const query = ctx.message?.text.split(" ")[2] ?? "";
-        if (!query) {
-          await ctx.reply(
-            "Please provide a query. Usage: /execute <task_name> <query>"
-          );
-          return;
-        }
-        if (!taskName) {
-          await ctx.reply(
-            "Please provide a task name. Usage: /execute <task_name>"
-          );
-          return;
-        }
-
-        try {
-          // Step 1: Find relevant agents for the task
-          await ctx.reply(
-            `🔍 Searching for agents that can handle: ${taskName}`
-          );
-          const agents = await findRelevantAgents(taskName);
-
-          if (agents.length === 0) {
-            await ctx.reply("❌ No agents found that can handle this task.");
-            return;
-          }
-
-          // Display found agents grouped by function
-          const grouped = groupAgentsByFunction(agents);
-          let message = `✨ Found ${agents.length} relevant agents:\n\n`;
-          grouped.forEach((agents, func) => {
-            message += `🔹 ${func}:\n`;
-            agents.forEach((agent) => {
-              message += `  • ${agent.name}\n`;
-            });
-            message += "\n";
-          });
-          await ctx.reply(message);
-
-          // Step 2: Fetch Nevermined info for each agent and filter valid ones
-          await ctx.reply("🔄 Verifying agent credentials...");
-          const validAgents = [];
-
-          for (const agent of agents) {
-            const agentInfo = await getAgentNeverminedData(agent.name);
-            if (agentInfo.agentId && agentInfo.planId) {
-              validAgents.push({
-                ...agent,
-                neverminedInfo: agentInfo,
-              });
-            }
-          }
-
-          if (validAgents.length === 0) {
-            await ctx.reply(
-              "❌ No agents found with valid Nevermined credentials."
-            );
-            return;
-          }
-
-          // Step 3: Select the first valid agent (you could implement different selection strategies)
-          const selectedAgent = validAgents[0];
-          await ctx.reply(
-            `🤖 Selected agent: ${selectedAgent.name}\n` +
-              `📝 Description: ${selectedAgent.description || "No description available"}\n` +
-              `🎯 Primary function: ${selectedAgent.primaryFunction || "Unknown"}`
-          );
-
-          // Step 4: Purchase the agent's plan
-          await ctx.reply("💳 Purchasing agent's plan...");
-          const planDID = selectedAgent.neverminedInfo.planId!;
-          const agentDID = selectedAgent.neverminedInfo.agentId!;
-
-          const purchaseBalance =
-            await this.neverminedService?.purchasePlan(planDID);
-          if (!purchaseBalance) {
-            throw new Error("Failed to purchase plan");
-          }
-          await ctx.reply(
-            `✅ Plan purchased successfully! ${purchaseBalance} credits remaining`
-          );
-
-          // Step 5: Submit the task
-          await ctx.reply("📤 Submitting task to agent...");
-
-          await this.neverminedService?.submitTaskDynamically(
-            agentDID,
-            planDID,
-            query,
-            undefined,
-            async (result) => {
-              await ctx.reply(
-                `🤖 Task Results:\n\n` +
-                  `📝 Input: ${result.input_query}\n` +
-                  `✨ Output: ${result.output}\n` +
-                  `💰 Cost: ${result.cost} Credits`
-              );
-            }
-          );
-        } catch (error) {
-          console.error("Error in execute command:", error);
-          await ctx.reply(
-            `❌ Error: ${error.message || "An unexpected error occurred"}`
-          );
-        }
-      });
-
-      this.bot.command("fetch_agent_info", async (ctx) => {
-        try {
-          const agentName = ctx.message?.text.split(" ")[1] ?? "";
-
-          if (!agentName) {
-            await ctx.reply(
-              "Please provide an agent name. Usage: /fetch_agent_info <agent_name>"
-            );
-            return;
-          }
-
-          await ctx.reply(`🔍 Fetching agent info: ${agentName}`);
-          const agentInfo = await getAgentNeverminedData(agentName);
-
-          if (!agentInfo) {
-            throw new Error("Agent not found");
-          }
-
-          await ctx.reply(
-            `✨ Agent Details:\n` +
-              `🤖 Name: ${agentInfo.name}\n` +
-              `🆔 Agent ID: ${agentInfo.agentId || "Not found"}\n` +
-              `📋 Plan ID: ${agentInfo.planId || "Not found"}\n` +
-              `📝 Description: ${agentInfo.description || "No description available"}`
-          );
-        } catch (error) {
-          console.error("Error in fetch_agent_info command:", error);
-          await ctx.reply(
-            `❌ Error: ${error.message || "Failed to fetch agent info"}`
-          );
-        }
-      });
-
-      this.bot.command("find_agents", async (ctx) => {
-        try {
-          const query = ctx.message?.text.split(" ")[1] ?? "";
-
-          if (!query) {
-            await ctx.reply(
-              "Please provide a search query. Usage: /find_agents <function>"
-            );
-            return;
-          }
-
-          await ctx.reply(`🔍 Searching for agents with function: ${query}`);
-          const agents = await findRelevantAgents(query);
-
-          if (agents.length === 0) {
-            await ctx.reply("❌ No agents found matching your query");
-            return;
-          }
-
-          const grouped = groupAgentsByFunction(agents);
-          let message = `✨ Found ${agents.length} relevant agents:\n\n`;
-
-          grouped.forEach((agents, func) => {
-            message += `🔹 ${func}:\n`;
-            agents.forEach((agent) => {
-              message += `  • ${agent.name}\n`;
-            });
-            message += "\n";
-          });
-
-          await ctx.reply(message);
-        } catch (error) {
-          console.error("Error in find_agents command:", error);
-          await ctx.reply(
-            `❌ Error: ${error.message || "Failed to search for agents"}`
-          );
-        }
-      });
-
-      this.bot.command("nevermined", async (ctx) => {
-        try {
-          const query = ctx.message?.text.split(" ")[1] ?? "";
-          const chatId = ctx.chat?.id;
-          console.log("Query:", query);
-          console.log("Chat ID:", chatId);
-
-          const agentDID =
-            "did:nv:ed26319e8551d5578b09563c3261df7cd4e3b1f4130434d04478a036c29e4403";
-          const planDID =
-            "did:nv:95933c24a7f3c181b62b2ee91d7b7e6ec0fce5430a0fd19f4cf5c4dc864efb6d";
-
-          await ctx.reply(
-            `🤖 Submitting Nevermined task:\nAgent DID: ${agentDID}\nPlan DID: ${planDID}`
-          );
-
-          const initBalance =
-            await this.neverminedService?.getPlanCreditBalance(planDID);
-          await ctx.reply(`💰 Initial plan credit balance: ${initBalance}`);
-
-          const finalBalance =
-            await this.neverminedService?.getPlanCreditBalance(planDID);
-          await ctx.reply(`💰 Final plan credit balance: ${finalBalance}`);
-        } catch (error) {
-          console.error("Error in nevermined command:", error);
-          await ctx.reply(
-            `❌ Error: ${error.message || "Failed to execute Nevermined task"}`
-          );
-        }
-      });
+      this.bot.command("start", (ctx) => ctx.reply("Hello!"));
       this.bot.catch(async (error) => {
         console.error("Telegram bot error:", error);
       });
@@ -473,12 +104,12 @@ export class TelegramService extends BaseService {
       this.nGrokService = await NgrokService.getInstance();
       try {
         // try starting the twitter service
-        this.twitterService = await TwitterService.getInstance();
-        await this.twitterService?.start();
-        console.log(
-          "Twitter Bot Profile:",
-          JSON.stringify(this.twitterService.me, null, 2)
-        );
+        // this.twitterService = await TwitterService.getInstance();
+        // await this.twitterService?.start();
+        // console.log(
+        //   "Twitter Bot Profile:",
+        //   JSON.stringify(this.twitterService.me, null, 2)
+        // );
       } catch (err) {
         console.log(
           "[WARN] [telegram.service] Unable to use twitter. Functionality will be disabled",
@@ -589,6 +220,7 @@ You can view the token page below (it takes a few minutes to be visible)`,
           ctx.reply("Failed to mint token");
         }
       });
+
       this.bot.command("lit", async (ctx) => {
         try {
           const action = ctx.match;
