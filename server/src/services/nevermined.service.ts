@@ -4,6 +4,8 @@ import {
   AgentExecutionStatus,
   Step,
   Task,
+  FIRST_STEP_NAME,
+  generateStepId,
   CreateTaskResultDto,
 } from "@nevermined-io/payments";
 import { BaseService } from "./base.service.js";
@@ -14,6 +16,7 @@ import * as fs from "fs/promises";
 import { AnyType } from "../utils.js";
 import { getAgentDIDs } from "../utils/Intuition/queries.js";
 import { MineflayerService } from "./mineflayer.service.js";
+import { EmberGrpcClient, OrderType } from "@emberai/sdk-typescript";
 
 //FIXME: Remove once Nevermined SDK is updated
 interface NeverminedStep extends Step {
@@ -303,56 +306,135 @@ export class NeverminedService extends BaseService {
         const inputQuery = step.input_query;
         console.log("[NeverminedService] Input query: ", inputQuery);
 
-        // Check if command is a harvest command
-        const harvestMatch = inputQuery.match(/!harvest\s+(\d+)/);
-        if (!harvestMatch) {
-          console.log("[NeverminedService] Not a harvest command, returning");
-          await payments.query.logTask({
-            level: "error",
-            task_id: step.task_id,
-            message: `Command not recognized: ${inputQuery}`,
-          });
-          await payments.query.updateStep(step.did, {
-            ...step,
-            step_status: AgentExecutionStatus.Failed,
-            output: "Command not recognized",
-            is_last: true,
-          });
-          return;
+        switch (step.name) {
+          case FIRST_STEP_NAME: {
+            await payments.query.logTask({
+              level: "info",
+              task_id: step.task_id,
+              message: `Step received ${step.name}, creating the additional steps...`,
+            });
+            console.log("[NeverminedService] Step received ", step);
+            const swapStepId = generateStepId();
+  
+            const steps = [
+              {
+                step_id: swapStepId,
+                task_id: step.task_id,
+                name: "swap",
+                is_last: true,
+              },
+            ];
+            console.log("[NeverminedService] Steps to be created: ", steps);
+            const createResult = await payments.query.createSteps(
+              step.did,
+              step.task_id,
+              { steps }
+            );
+  
+            await payments.query.logTask({
+              task_id: step.task_id,
+              level: createResult.status === 201 ? "info" : "error",
+              message:
+                createResult.status === 201
+                  ? "Steps created successfully."
+                  : `Error creating steps: ${JSON.stringify(createResult.data)}`,
+            });
+            // await this.telegramService?.bot.api.sendMessage(
+            //   "-4729581369",
+            //   `Steps created successfully.`
+            // );
+  
+            await payments.query.updateStep(step.did, {
+              ...step,
+              step_status: AgentExecutionStatus.Completed,
+              output: step.input_query,
+            });
+            return;
+          }
+  
+          case "swap": {
+            const payload = JSON.parse(step.input_query) as {
+              amount: string;
+              from_token: string;
+              from_chain_id: string;
+              to_token: string;
+              to_chain_id: string;
+              sender: string;
+            };
+            await payments.query.logTask({
+              level: "info",
+              task_id: step.task_id,
+              step_id: step.step_id,
+              task_status: AgentExecutionStatus.In_Progress,
+              message: `Data fetched: ${JSON.stringify(payload)}`,
+            });
+  
+            console.log(
+              "[NeverminedService] EMBER_ENDPOINT: ",
+              process.env.EMBER_ENDPOINT
+            );
+  
+            const client = new EmberGrpcClient(
+              process.env.EMBER_ENDPOINT || "grpc.api.emberai.xyz:50051"
+            );
+  
+            const swapTokenRequest = {
+              orderType: OrderType.MARKET_BUY,
+              baseToken: {
+                address: payload.from_token,
+                chainId: payload.from_chain_id,
+              },
+              quoteToken: {
+                address: payload.to_token,
+                chainId: payload.to_chain_id,
+              },
+              amount: payload.amount,
+              recipient: payload.sender,
+            };
+            const response = await client.swapTokens(swapTokenRequest);
+  
+            if (response.status === 2) {
+              console.log(
+                "[NeverminedService] Swap validation failed before transaction creation:",
+                JSON.stringify({
+                  status: response.status,
+                  taskId: step.task_id,
+                  stepId: step.step_id,
+                  request: swapTokenRequest,
+                  response: response,
+                })
+              );
+  
+              // early return to avoid transaction creation
+              return;
+            }
+  
+            console.log(
+              "[NeverminedService] Ember swap transaction created: ",
+              JSON.stringify(response),
+              step.task_id,
+              step.step_id
+            );
+            await payments.query.updateStep(step.did, {
+              ...step,
+              step_status: AgentExecutionStatus.Completed,
+              output: JSON.stringify(response),
+            });
+            return;
+          }
+          default: {
+            await payments.query.logTask({
+              level: "info",
+              task_id: step.task_id,
+              message: `Unknown step ${step.name}, Skipping...`,
+            });
+            // await this.telegramService?.bot.api.sendMessage(
+            //   "-4729581369",
+            //   `Unknown step ${step.name}, Skipping...`
+            // );
+            return;
+          }
         }
-
-        // Extract the harvest amount
-        const harvestAmount = parseInt(harvestMatch[1], 10);
-
-        const bot = await this.mineflayerService?.getBot();
-        if (!bot || harvestAmount <= 0) {
-          console.log("[NeverminedService] Bot not found");
-          await payments.query.logTask({
-            level: "error",
-            task_id: step.task_id,
-            message: "Bot not found",
-          });
-          await payments.query.updateStep(step.did, {
-            ...step,
-            step_status: AgentExecutionStatus.Failed,
-            output: "Bot not found",
-            is_last: true,
-          });
-          return;
-        }
-        await bot.chat(`Received request to harvest ${harvestAmount} logs`);
-        await this.mineflayerService?.harvestTree("", harvestAmount);
-        await payments.query.logTask({
-          level: "info",
-          task_id: step.task_id,
-          message: `Command executed: harvest ${harvestAmount} logs`,
-        });
-        await payments.query.updateStep(step.did, {
-          ...step,
-          step_status: AgentExecutionStatus.Completed,
-          output: `Harvested ${harvestAmount} logs`,
-          is_last: true,
-        });
       } catch (error) {
         console.error("[NeverminedService] Error processing query:", error);
         const eventData = JSON.parse(data);
