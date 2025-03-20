@@ -16,7 +16,7 @@ import * as fs from "fs/promises";
 import { AnyType } from "../utils.js";
 import { getAgentDIDs } from "../utils/Intuition/queries.js";
 import { MineflayerService } from "./mineflayer.service.js";
-import { EmberGrpcClient, OrderType } from "@emberai/sdk-typescript";
+import { EmberGrpcClient } from "@emberai/sdk-typescript";
 
 //FIXME: Remove once Nevermined SDK is updated
 interface NeverminedStep extends Step {
@@ -315,7 +315,7 @@ export class NeverminedService extends BaseService {
             });
             console.log("[NeverminedService] Step received ", step);
             const swapStepId = generateStepId();
-  
+
             const steps = [
               {
                 step_id: swapStepId,
@@ -330,20 +330,19 @@ export class NeverminedService extends BaseService {
               step.task_id,
               { steps }
             );
-  
+
             await payments.query.logTask({
               task_id: step.task_id,
-              level: createResult.status === 201 ? "info" : "error",
-              message:
-                createResult.status === 201
-                  ? "Steps created successfully."
-                  : `Error creating steps: ${JSON.stringify(createResult.data)}`,
+              level: createResult.success ? "info" : "error",
+              message: createResult.success
+                ? "Steps created successfully."
+                : `Error creating steps: ${JSON.stringify(createResult.data)}`,
             });
             // await this.telegramService?.bot.api.sendMessage(
             //   "-4729581369",
             //   `Steps created successfully.`
             // );
-  
+
             await payments.query.updateStep(step.did, {
               ...step,
               step_status: AgentExecutionStatus.Completed,
@@ -351,7 +350,7 @@ export class NeverminedService extends BaseService {
             });
             return;
           }
-  
+
           case "swap": {
             const payload = JSON.parse(step.input_query) as {
               amount: string;
@@ -368,18 +367,18 @@ export class NeverminedService extends BaseService {
               task_status: AgentExecutionStatus.In_Progress,
               message: `Data fetched: ${JSON.stringify(payload)}`,
             });
-  
+
             console.log(
               "[NeverminedService] EMBER_ENDPOINT: ",
               process.env.EMBER_ENDPOINT
             );
-  
+
             const client = new EmberGrpcClient(
               process.env.EMBER_ENDPOINT || "grpc.api.emberai.xyz:50051"
             );
-  
+
             const swapTokenRequest = {
-              orderType: OrderType.MARKET_BUY,
+              orderType: "MARKET_BUY",
               baseToken: {
                 address: payload.from_token,
                 chainId: payload.from_chain_id,
@@ -392,7 +391,7 @@ export class NeverminedService extends BaseService {
               recipient: payload.sender,
             };
             const response = await client.swapTokens(swapTokenRequest);
-  
+
             if (response.status === 2) {
               console.log(
                 "[NeverminedService] Swap validation failed before transaction creation:",
@@ -404,11 +403,11 @@ export class NeverminedService extends BaseService {
                   response: response,
                 })
               );
-  
+
               // early return to avoid transaction creation
               return;
             }
-  
+
             console.log(
               "[NeverminedService] Ember swap transaction created: ",
               JSON.stringify(response),
