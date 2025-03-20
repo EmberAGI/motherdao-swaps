@@ -1,0 +1,146 @@
+services:
+  minecraft-bot-bob:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: minecraft-bot-bob
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - MINECRAFT_USERNAME=BobBot
+      # For Linux, use the special Docker DNS name
+      # - MINECRAFT_HOST=host.docker.internal
+      # Use the IP address of the host machine
+      - MINECRAFT_HOST=Purringbeatle.aternos.me
+      - MINECRAFT_ROLE=builder
+      - MINECRAFT_VERSION=1.20
+      - MINECRAFT_PORT=25565
+
+      - NEVERMINED_API_KEY=${BOB_NEVERMINED_API_KEY}
+      - COLLABLAND_API_KEY=${COLLABLAND_API_KEY}
+      - TELEGRAM_BOT_TOKEN=${BOB_TELEGRAM_BOT_TOKEN}
+      - PRIVATE_KEY=${BOB_PRIVATE_KEY}
+      - BASE_SEPOLIA_RPC_URL=${BASE_SEPOLIA_RPC_URL}
+    ports:
+      - '3001:3001'
+    volumes:
+      - shared_data:/app/server/data
+    networks:
+      - minecraft-network
+    # For Linux, add this to make host.docker.internal work
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+
+  minecraft-bot-alice:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: minecraft-bot-alice
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3002
+      - MINECRAFT_USERNAME=AliceBot
+      # For Linux, use the special Docker DNS name
+      # - MINECRAFT_HOST=host.docker.internal
+      # Use the IP address of the host machine
+      - MINECRAFT_HOST=Purringbeatle.aternos.me
+      - MINECRAFT_ROLE=merchant
+      - MINECRAFT_VERSION=1.20
+      - MINECRAFT_PORT=25565
+      - NEVERMINED_API_KEY=${ALICE_NEVERMINED_API_KEY}
+      - PRIVATE_KEY=${ALICE_PRIVATE_KEY}
+      - COLLABLAND_API_KEY=${COLLABLAND_API_KEY}
+      - TELEGRAM_BOT_TOKEN=${ALICE_TELEGRAM_BOT_TOKEN}
+      - BASE_SEPOLIA_RPC_URL=${BASE_SEPOLIA_RPC_URL}
+    ports:
+      - '3002:3002'
+    volumes:
+      - shared_data:/app/server/data
+    networks:
+      - minecraft-network
+    # For Linux, add this to make host.docker.internal work
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+
+  minecraft-bot-alli:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: minecraft-bot-alli
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3003
+      - MINECRAFT_USERNAME=AlliBot
+      # For Linux, use the special Docker DNS name
+      # - MINECRAFT_HOST=host.docker.internal
+      # Use the IP address of the host machine
+      - MINECRAFT_HOST=Purringbeatle.aternos.me
+      - MINECRAFT_ROLE=merchant
+      - MINECRAFT_VERSION=1.20
+      - MINECRAFT_PORT=25565
+      - NEVERMINED_API_KEY=${ALLI_NEVERMINED_API_KEY}
+      - PRIVATE_KEY=${ALLI_PRIVATE_KEY}
+      - COLLABLAND_API_KEY=${COLLABLAND_API_KEY}
+      - TELEGRAM_BOT_TOKEN=${ALLI_TELEGRAM_BOT_TOKEN}
+      - BASE_SEPOLIA_RPC_URL=${BASE_SEPOLIA_RPC_URL}
+    ports:
+      - '3002:3002'
+    volumes:
+      - shared_data:/app/server/data
+    networks:
+      - minecraft-network
+    # For Linux, add this to make host.docker.internal work
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+
+  minecraft-bot-bill:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: minecraft-bot-bill
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - NODE_ENV=production
+      - PORT=3004
+      - MINECRAFT_USERNAME=BillBot
+      # For Linux, use the special Docker DNS name
+      # - MINECRAFT_HOST=host.docker.internal
+      # Use the IP address of the host machine
+      - MINECRAFT_HOST=Purringbeatle.aternos.me
+      - MINECRAFT_ROLE=builder
+      - MINECRAFT_VERSION=1.20
+      - MINECRAFT_PORT=25565
+
+      - NEVERMINED_API_KEY=${BILL_NEVERMINED_API_KEY}
+      - COLLABLAND_API_KEY=${COLLABLAND_API_KEY}
+      - TELEGRAM_BOT_TOKEN=${BILL_TELEGRAM_BOT_TOKEN}
+      - PRIVATE_KEY=${BILL_PRIVATE_KEY}
+      - BASE_SEPOLIA_RPC_URL=${BASE_SEPOLIA_RPC_URL}
+    ports:
+      - '3001:3001'
+    volumes:
+      - shared_data:/app/server/data
+    networks:
+      - minecraft-network
+    # For Linux, add this to make host.docker.internal work
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+
+
+volumes:
+  shared_data:
+
+networks:
+  minecraft-network:
+    driver: bridge
