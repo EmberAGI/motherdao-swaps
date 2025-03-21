@@ -25,6 +25,19 @@ interface NeverminedTask extends Omit<Task, "steps" | "name"> {
   did: string;
 }
 
+function catchErrors<A, B>(
+  fn: (a: A) => Promise<B>
+): (a: A) => Promise<B | void> {
+  return async function (a: A) {
+    try {
+      return await fn(a);
+    } catch (e) {
+      console.error(e);
+      return;
+    }
+  };
+}
+
 export class NeverminedService extends BaseService {
   private client: Payments | null = null;
   private paymentPlanDID: string | null = null;
@@ -244,7 +257,7 @@ export class NeverminedService extends BaseService {
   }
 
   private processQuery(payments: Payments) {
-    return async (data: StepEvent) => {
+    return catchErrors(async (data: StepEvent) => {
       console.log("[NeverminedService] raw data: ", data);
       // await this.telegramService?.bot.api.sendMessage(
       //   "-4729581369",
@@ -481,7 +494,7 @@ export class NeverminedService extends BaseService {
           return;
         }
       }
-    };
+    });
   }
 
   public async getPlanCreditBalance(
