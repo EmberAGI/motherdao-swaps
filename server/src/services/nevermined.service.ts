@@ -378,7 +378,7 @@ export class NeverminedService extends BaseService {
             );
 
             const swapTokenRequest = {
-              orderType: OrderType.MARKET_BUY,
+              orderType: OrderType.MARKET_SELL,
               baseToken: {
                 address: payload.from_token,
                 chainId: payload.from_chain_id,
