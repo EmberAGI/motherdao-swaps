@@ -199,7 +199,6 @@ export class TelegramService extends BaseService {
             agentDID,
             planDID,
             query,
-            undefined,
             async (result: unknown) => {
               let formattedResult = result;
               // Try to parse and format if result is JSON string
