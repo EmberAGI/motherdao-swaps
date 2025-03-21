@@ -8,6 +8,7 @@ import {
   Task,
   TaskEvent,
   FullTaskDto,
+  StepEvent,
 } from "@nevermined-io/payments";
 import { BaseService } from "./base.service.js";
 import { TelegramService } from "./telegram.service.js";
@@ -15,7 +16,6 @@ import { parseUnits } from "ethers";
 import * as path from "path";
 import * as fs from "fs/promises";
 import { EmberGrpcClient, OrderType } from "@emberai/sdk-typescript";
-import { AnyType } from "src/utils.js";
 
 //FIXME: Remove once Nevermined SDK is updated
 interface NeverminedStep extends Step {
@@ -244,16 +244,14 @@ export class NeverminedService extends BaseService {
   }
 
   private processQuery(payments: Payments) {
-    return async (data: AnyType) => {
+    return async (data: StepEvent) => {
       console.log("[NeverminedService] raw data: ", data);
-      const eventData = JSON.parse(data);
-      console.log("[NeverminedService] parsed event data: ", eventData);
       // await this.telegramService?.bot.api.sendMessage(
       //   "-4729581369",
       //   `Event data: ${JSON.stringify(eventData)}`
       // );
       const step = (await payments.query.getStep(
-        eventData.step_id
+        data.step_id
       )) as NeverminedStep;
       console.log("[NeverminedService] Step: ", step);
       await payments.query.logTask({
