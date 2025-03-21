@@ -75,11 +75,11 @@ export class NeverminedService extends BaseService {
     // Try to initialize MineflayerService but don't force it to succeed
     try {
       this.mineflayerService = MineflayerService.getInstance();
-
+      
       // Check if Mineflayer is available with a short timeout
       const maxRetries = 2;
       const retryDelay = 2000; // 2 seconds
-
+      
       for (let i = 0; i < maxRetries; i++) {
         try {
           const botInfo = await this.mineflayerService?.getBotInfo();
@@ -103,17 +103,12 @@ export class NeverminedService extends BaseService {
           await new Promise((resolve) => setTimeout(resolve, retryDelay));
         }
       }
-
+      
       if (!this.mineflayerAvailable) {
-        console.log(
-          "[NeverminedService] Mineflayer not available, continuing without it"
-        );
+        console.log("[NeverminedService] Mineflayer not available, continuing without it");
       }
     } catch (error) {
-      console.warn(
-        "[NeverminedService] Failed to initialize MineflayerService:",
-        error.message
-      );
+      console.warn("[NeverminedService] Failed to initialize MineflayerService:", error.message);
       console.log("[NeverminedService] Continuing without Mineflayer service");
       this.mineflayerService = null;
       this.mineflayerAvailable = false;
@@ -325,12 +320,12 @@ export class NeverminedService extends BaseService {
               },
             ];
             console.log("[NeverminedService] Steps to be created: ", steps);
-            const createResult = (await payments.query.createSteps(
+            const createResult = await payments.query.createSteps(
               step.task_id,
               step.did,
               { steps }
-            )) as unknown as { status: number; data: string; success: boolean };
-
+            ) as unknown as { status: number; data: string; success: boolean };
+              
             await payments.query.logTask({
               task_id: step.task_id,
               level: createResult.success ? "info" : "error",
@@ -391,7 +386,7 @@ export class NeverminedService extends BaseService {
               recipient: payload.sender,
             };
             const response = await client.swapTokens(swapTokenRequest);
-
+  
             if (response.status === "ERROR") {
               console.log(
                 "[NeverminedService] Swap validation failed before transaction creation:",
@@ -687,7 +682,7 @@ export class NeverminedService extends BaseService {
           botDetails = `Mineflayer error: ${error.message}`;
         }
       } else {
-        botDetails = `Bot: ${process.env.BOT_USERNAME || "unknown"} (from env)`;
+        botDetails = `Bot: ${process.env.BOT_USERNAME || 'unknown'} (from env)`;
       }
 
       return {
