@@ -245,8 +245,9 @@ export class NeverminedService extends BaseService {
 
   private processQuery(payments: Payments) {
     return async (data: AnyType) => {
+      console.log("[NeverminedService] raw data: ", data);
       const eventData = JSON.parse(data);
-      console.log("[NeverminedService] Event data: ", eventData);
+      console.log("[NeverminedService] parsed event data: ", eventData);
       // await this.telegramService?.bot.api.sendMessage(
       //   "-4729581369",
       //   `Event data: ${JSON.stringify(eventData)}`
