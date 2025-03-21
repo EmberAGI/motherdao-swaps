@@ -43,6 +43,7 @@ export class NeverminedService extends BaseService {
   private testTokenPlanDID: string | null = null;
   private static instance: NeverminedService;
   private mineflayerService: MineflayerService | null = null;
+  private mineflayerAvailable: boolean = false;
 
   // Validate that the bot info is properly initialized
   private async validateBotInfo(): Promise<string> {
@@ -71,42 +72,46 @@ export class NeverminedService extends BaseService {
       nvmApiKey: process.env.NEVERMINED_API_KEY!,
     });
 
-    this.mineflayerService = MineflayerService.getInstance();
-
-    // Wait for Mineflayer to be properly initialized
-    const maxRetries = 5;
-    const retryDelay = 5000; // 5 seconds
-
-    // Wait for Mineflayer to be properly initialized
-    for (let i = 0; i < maxRetries; i++) {
-      try {
-        const botInfo = await this.mineflayerService?.getBotInfo();
-        if (botInfo && botInfo.username && botInfo.username !== "unknown") {
+    // Try to initialize MineflayerService but don't force it to succeed
+    try {
+      this.mineflayerService = MineflayerService.getInstance();
+      
+      // Check if Mineflayer is available with a short timeout
+      const maxRetries = 2;
+      const retryDelay = 2000; // 2 seconds
+      
+      for (let i = 0; i < maxRetries; i++) {
+        try {
+          const botInfo = await this.mineflayerService?.getBotInfo();
+          if (botInfo && botInfo.username && botInfo.username !== "unknown") {
+            console.log(
+              "[NeverminedService] Mineflayer bot initialized successfully:",
+              botInfo.username
+            );
+            this.mineflayerAvailable = true;
+            break;
+          }
           console.log(
-            "[NeverminedService] Mineflayer bot initialized successfully:",
-            botInfo.username
+            `[NeverminedService] Waiting for bot initialization... (attempt ${i + 1}/${maxRetries})`
           );
-          break;
-        }
-        if (i === maxRetries - 1) {
-          throw new Error("Max retries reached waiting for bot initialization");
-        }
-        console.log(
-          `[NeverminedService] Waiting for bot initialization... (attempt ${i + 1}/${maxRetries})`
-        );
-        await new Promise((resolve) => setTimeout(resolve, retryDelay));
-      } catch (error) {
-        if (i === maxRetries - 1) {
-          throw new Error(
-            `Failed to initialize Nevermined service: ${error.message}`
+          await new Promise((resolve) => setTimeout(resolve, retryDelay));
+        } catch (error) {
+          console.log(
+            `[NeverminedService] Retry attempt ${i + 1}/${maxRetries} failed:`,
+            error.message
           );
+          await new Promise((resolve) => setTimeout(resolve, retryDelay));
         }
-        console.log(
-          `[NeverminedService] Retry attempt ${i + 1}/${maxRetries} failed:`,
-          error.message
-        );
-        await new Promise((resolve) => setTimeout(resolve, retryDelay));
       }
+      
+      if (!this.mineflayerAvailable) {
+        console.log("[NeverminedService] Mineflayer not available, continuing without it");
+      }
+    } catch (error) {
+      console.warn("[NeverminedService] Failed to initialize MineflayerService:", error.message);
+      console.log("[NeverminedService] Continuing without Mineflayer service");
+      this.mineflayerService = null;
+      this.mineflayerAvailable = false;
     }
 
     if (!this.client.isLoggedIn) {
@@ -208,18 +213,12 @@ export class NeverminedService extends BaseService {
     // Create a new payment plan with a unique name based on bot username and timestamp
     try {
       console.log("[NeverminedService] Creating new payment plan...");
-      const botInfo = await this.mineflayerService?.getBotInfo();
-      if (!botInfo || !botInfo.username || botInfo.username === "unknown") {
-        throw new Error(
-          "[NeverminedService] Bot information not properly initialized"
-        );
-      }
-      const uniqueId = `${botInfo.username}-${Date.now()}`;
-      console.log("[NeverminedService] Bot info:", botInfo);
+      const botUsername = await this.validateBotInfo();
+      const uniqueId = `${botUsername}-${Date.now()}`;
 
       const paymentPlan = await this.client.createCreditsPlan({
         name: `PaymentPlan:::${uniqueId}`,
-        description: `Payment plan to access the agent ${botInfo?.username ?? "<unknown>"}`,
+        description: `Payment plan to access the agent ${botUsername}`,
         price: parseUnits("1", 6), //1 USDC per plan
         tokenAddress: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d", //USDC on Arbitrum Sepolia
         amountOfCredits: 1,
@@ -257,17 +256,12 @@ export class NeverminedService extends BaseService {
     // Create a new agent with a unique name
     try {
       console.log("[NeverminedService] Creating new agent...");
-      const botInfo = await this.mineflayerService?.getBotInfo();
-      if (!botInfo || !botInfo.username || botInfo.username === "unknown") {
-        throw new Error(
-          "[NeverminedService] Bot information not properly initialized"
-        );
-      }
-      const uniqueId = `${botInfo.username}-${Date.now()}`;
+      const botUsername = await this.validateBotInfo();
+      const uniqueId = `${botUsername}-${Date.now()}`;
 
       const agent = await this.client.createAgent({
         name: `Agent:::${uniqueId}`,
-        description: `Agent ${botInfo?.username ?? "<unknown>"}`,
+        description: `Agent ${botUsername}`,
         planDID: await this.getPaymentPlanDID(),
         serviceChargeType: "fixed",
         amountOfCredits: 1,
@@ -551,8 +545,7 @@ export class NeverminedService extends BaseService {
       const filePath = path.join(dataDir, "nevermined-credentials.json");
 
       // Get bot username to use as key
-      const botInfo = await this.mineflayerService?.getBotInfo();
-      const botUsername = botInfo?.username ?? "unknown";
+      const botUsername = await this.validateBotInfo();
 
       // Try to read existing file first
       let existingData: Record<
@@ -571,6 +564,13 @@ export class NeverminedService extends BaseService {
         // File doesn't exist or is invalid, start with empty object
       }
 
+      // Determine the role
+      let role = "merchant";
+      if (this.mineflayerAvailable && this.mineflayerService) {
+        const botInfo = await this.mineflayerService.getBotInfo();
+        role = botInfo?.role ?? "merchant";
+      }
+
       // Update with this bot's DIDs
       existingData[botUsername] = {
         agentDID: this.agentDID!,
@@ -578,7 +578,7 @@ export class NeverminedService extends BaseService {
         ...(this.testTokenPlanDID && {
           testTokenPlanDID: this.testTokenPlanDID,
         }),
-        role: botInfo?.role ?? "merchant",
+        role,
       };
 
       // Write back to file
@@ -597,7 +597,7 @@ export class NeverminedService extends BaseService {
 
   private async loadDIDsFromFile(): Promise<DIDsResult> {
     try {
-      // Early validation of bot info
+      // Get bot username but don't throw if validation fails
       let botUsername: string;
       try {
         botUsername = await this.validateBotInfo();
@@ -662,15 +662,6 @@ export class NeverminedService extends BaseService {
         };
       }
 
-      // Check if bot info is available
-      const botInfo = await this.mineflayerService?.getBotInfo();
-      if (!botInfo || !botInfo.username || botInfo.username === "unknown") {
-        return {
-          healthy: false,
-          details: "Bot not properly initialized",
-        };
-      }
-
       // Check if DIDs are loaded
       if (!this.paymentPlanDID || !this.agentDID) {
         return {
@@ -679,9 +670,24 @@ export class NeverminedService extends BaseService {
         };
       }
 
+      // Get bot information, but don't fail if Mineflayer is unavailable
+      let botDetails = "Mineflayer unavailable";
+      if (this.mineflayerAvailable && this.mineflayerService) {
+        try {
+          const botInfo = await this.mineflayerService.getBotInfo();
+          if (botInfo && botInfo.username && botInfo.username !== "unknown") {
+            botDetails = `Bot: ${botInfo.username}`;
+          }
+        } catch (error) {
+          botDetails = `Mineflayer error: ${error.message}`;
+        }
+      } else {
+        botDetails = `Bot: ${process.env.BOT_USERNAME || 'unknown'} (from env)`;
+      }
+
       return {
         healthy: true,
-        details: `Service healthy - Bot: ${botInfo.username}, PaymentPlanDID: ${this.paymentPlanDID}, AgentDID: ${this.agentDID}${
+        details: `Service healthy - ${botDetails}, PaymentPlanDID: ${this.paymentPlanDID}, AgentDID: ${this.agentDID}${
           this.testTokenPlanDID
             ? `, TestTokenPlanDID: ${this.testTokenPlanDID}`
             : ""
