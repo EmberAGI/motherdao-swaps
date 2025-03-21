@@ -1793,7 +1793,9 @@ Transaction was executed using CollabLand's AccountKit API.
   }
 
   async getBotInfo() {
-    const intuitionData = await getAgentDIDs(this.bot?.username || "");
+    const intuitionData = await getAgentDIDs(
+      this.bot?.username || process.env.BOT_USERNAME || ""
+    );
     return {
       username: this.bot?.username,
       version: this.bot?.version,
