@@ -313,6 +313,7 @@ export class NeverminedService extends BaseService {
             to_token: string;
             to_chain_id: string;
             sender: string;
+            slippage: number;
           };
           await payments.query.logTask({
             level: "info",
@@ -343,6 +344,7 @@ export class NeverminedService extends BaseService {
             },
             amount: payload.amount,
             recipient: payload.sender,
+            slippageTolerance: payload.slippage.toString(),
           };
           const response = await client.swapTokens(swapTokenRequest);
 
