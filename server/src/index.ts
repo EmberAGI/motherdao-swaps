@@ -14,7 +14,6 @@ import cookieParser from "cookie-parser";
 import githubRouter from "./routes/github.js";
 import { AnyType } from "./utils.js";
 import { isHttpError } from "http-errors";
-import { MineflayerService } from "./services/mineflayer.service.js";
 import minecraftRouter from "./routes/minecraft.js";
 import { NeverminedService } from "./services/nevermined.service.js";
 
@@ -112,10 +111,11 @@ app.listen(port, async () => {
     const botInfo = await telegramService.getBotInfo();
     console.log("Telegram Bot URL:", `https://t.me/${botInfo.username}`);
 
-    // Initialize Mineflayer service
-    const mineflayerService = MineflayerService.getInstance();
-    await mineflayerService.start();
-    services.push(mineflayerService);
+    // Commented out by klntsky: we don't need it for the demo
+    // // Initialize Mineflayer service
+    // const mineflayerService = MineflayerService.getInstance();
+    // await mineflayerService.start();
+    // services.push(mineflayerService);
 
     // Initialize Nevermined service
     const neverminedService = NeverminedService.getInstance();
