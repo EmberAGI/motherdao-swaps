@@ -47,12 +47,13 @@ export class NeverminedService extends BaseService {
   // Validate that the bot info is properly initialized
   private async validateBotInfo(): Promise<string> {
     const botInfo = await this.mineflayerService?.getBotInfo();
-    if (!botInfo || !botInfo.username || botInfo.username === "unknown") {
+    const username = botInfo?.username ?? process.env.BOT_USERNAME;
+    if (!username || username === "unknown") {
       throw new Error(
         "[NeverminedService] Bot information not properly initialized"
       );
     }
-    return botInfo.username;
+    return username;
   }
 
   constructor() {
