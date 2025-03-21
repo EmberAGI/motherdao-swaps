@@ -267,22 +267,14 @@ export class NeverminedService extends BaseService {
             message: `Step received ${step.name}, creating the additional steps...`,
           });
           console.log("[NeverminedService] Step received ", step);
-          const fetchDataStepId = generateStepId();
-          const encryptDataStepId = generateStepId();
+          const swapStepId = generateStepId();
 
           const steps = [
             {
-              step_id: fetchDataStepId,
+              step_id: swapStepId,
               task_id: step.task_id,
-              predecessor: step.step_id, // "fetchData" follows "init"
-              name: "fetchData",
-              is_last: false,
-            },
-            {
-              step_id: encryptDataStepId,
-              task_id: step.task_id,
-              predecessor: fetchDataStepId, // "encryptData" follows "fetchData"
-              name: "encryptData",
+              predecessor: step.step_id,
+              name: "swap",
               is_last: true,
             },
           ];
