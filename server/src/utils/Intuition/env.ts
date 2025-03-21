@@ -18,8 +18,8 @@ function getConfig() {
       network: "baseSepolia",
     },
     production: {
-      intuitionApiUrl: "https://prod.base-sepolia.intuition-api.com/v1/graphql",
-      network: "baseSepolia",
+      intuitionApiUrl: "https://dev.base.intuition-api.com/v1/graphql",
+      network: "base",
     },
   };
 

@@ -1,4 +1,4 @@
-import express, { Request, Response } from "express";
+import express, { NextFunction, Request, Response } from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import helloRouter from "./routes/hello.js";
@@ -14,8 +14,6 @@ import cookieParser from "cookie-parser";
 import githubRouter from "./routes/github.js";
 import { AnyType } from "./utils.js";
 import { isHttpError } from "http-errors";
-import { MineflayerService } from "./services/mineflayer.service.js";
-import minecraftRouter from "./routes/minecraft.js";
 import { NeverminedService } from "./services/nevermined.service.js";
 
 // Convert ESM module URL to filesystem path
@@ -32,7 +30,7 @@ dotenv.config({
 
 // Initialize Express app
 const app = express();
-const port = process.env.PORT || 3001;
+const port = process.env.PORT || 3002;
 
 // Configure CORS with ALL allowed origins
 app.use(cors());
@@ -59,22 +57,14 @@ app.use("/auth/discord", discordRouter);
 // Mount GitHub OAuth routes
 app.use("/auth/github", githubRouter);
 
-// Mount Minecraft routes
-app.use("/minecraft", minecraftRouter);
-
-// Define a route for the root path
-app.get("/", (_req, res) => {
-  res.send("Hello from Express.js!");
-});
-
 // 404 handler
-app.use((_req: Request, _res: Response) => {
+app.use((_req: Request, _res: Response, _next: NextFunction) => {
   _res.status(404).json({
-    message: `Route not found`,
+    message: `Route ${_req.method} ${_req.url} not found`,
   });
 });
 
-app.use((_err: AnyType, _req: Request, _res: Response) => {
+app.use((_err: AnyType, _req: Request, _res: Response, _next: NextFunction) => {
   if (isHttpError(_err)) {
     _res.status(_err.statusCode).json({
       message: _err.message,
@@ -112,15 +102,11 @@ app.listen(port, async () => {
     const botInfo = await telegramService.getBotInfo();
     console.log("Telegram Bot URL:", `https://t.me/${botInfo.username}`);
 
-    // Initialize Mineflayer service
-    const mineflayerService = MineflayerService.getInstance();
-    await mineflayerService.start();
-    services.push(mineflayerService);
-
-    // Initialize Nevermined service
-    const neverminedService = NeverminedService.getInstance();
-    await neverminedService.start();
-    services.push(neverminedService);
+    if (process.env.NEVERMINED_API_KEY) {
+      const neverminedService = await NeverminedService.getInstance();
+      await neverminedService.start();
+      services.push(neverminedService);
+    }
   } catch (e) {
     console.error("Failed to start server:", e);
     process.exit(1);

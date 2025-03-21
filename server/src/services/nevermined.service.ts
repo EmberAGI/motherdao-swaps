@@ -1,22 +1,19 @@
 import {
   Payments,
   EnvironmentName,
+  FIRST_STEP_NAME,
   AgentExecutionStatus,
   Step,
-  Task,
-  FIRST_STEP_NAME,
   generateStepId,
-  CreateTaskResultDto,
+  Task,
 } from "@nevermined-io/payments";
 import { BaseService } from "./base.service.js";
-// import { TelegramService } from "./telegram.service.js";
+import { TelegramService } from "./telegram.service.js";
 import { parseUnits } from "ethers";
 import * as path from "path";
 import * as fs from "fs/promises";
-import { AnyType } from "../utils.js";
-import { getAgentDIDs } from "../utils/Intuition/queries.js";
-import { MineflayerService } from "./mineflayer.service.js";
 import { EmberGrpcClient, OrderType } from "@emberai/sdk-typescript";
+import { AnyType } from "src/utils.js";
 
 //FIXME: Remove once Nevermined SDK is updated
 interface NeverminedStep extends Step {
@@ -26,37 +23,12 @@ interface NeverminedTask extends Omit<Task, "steps" | "name"> {
   did: string;
 }
 
-interface DIDsResult {
-  success: boolean;
-  data?: {
-    agentDID: string;
-    paymentPlanDID: string;
-    testTokenPlanDID?: string;
-  };
-  error?: string;
-}
-
 export class NeverminedService extends BaseService {
   private client: Payments | null = null;
   private paymentPlanDID: string | null = null;
   private agentDID: string | null = null;
-  private testTokenPlanDID: string | null = null;
   private static instance: NeverminedService;
-  private mineflayerService: MineflayerService | null = null;
-  private mineflayerAvailable: boolean = false;
-
-  // Validate that the bot info is properly initialized
-  private async validateBotInfo(): Promise<string> {
-    const botInfo = await this.mineflayerService?.getBotInfo();
-    const username = botInfo?.username ?? process.env.BOT_USERNAME;
-    if (!username || username === "unknown") {
-      throw new Error(
-        "[NeverminedService] Bot information not properly initialized"
-      );
-    }
-    return username;
-  }
-
+  private telegramService: TelegramService | null = null;
   constructor() {
     super();
   }
@@ -65,106 +37,27 @@ export class NeverminedService extends BaseService {
     if (!process.env.NEVERMINED_API_KEY) {
       throw new Error("NEVERMINED_API_KEY must be defined");
     }
-
     this.client = Payments.getInstance({
       environment:
         (process.env.NEVERMINED_ENVIRONMENT as EnvironmentName) ?? "testing",
       nvmApiKey: process.env.NEVERMINED_API_KEY!,
     });
-
-    // Try to initialize MineflayerService but don't force it to succeed
-    try {
-      this.mineflayerService = MineflayerService.getInstance();
-      
-      // Check if Mineflayer is available with a short timeout
-      const maxRetries = 2;
-      const retryDelay = 2000; // 2 seconds
-      
-      for (let i = 0; i < maxRetries; i++) {
-        try {
-          const botInfo = await this.mineflayerService?.getBotInfo();
-          if (botInfo && botInfo.username && botInfo.username !== "unknown") {
-            console.log(
-              "[NeverminedService] Mineflayer bot initialized successfully:",
-              botInfo.username
-            );
-            this.mineflayerAvailable = true;
-            break;
-          }
-          console.log(
-            `[NeverminedService] Waiting for bot initialization... (attempt ${i + 1}/${maxRetries})`
-          );
-          await new Promise((resolve) => setTimeout(resolve, retryDelay));
-        } catch (error) {
-          console.log(
-            `[NeverminedService] Retry attempt ${i + 1}/${maxRetries} failed:`,
-            error.message
-          );
-          await new Promise((resolve) => setTimeout(resolve, retryDelay));
-        }
-      }
-      
-      if (!this.mineflayerAvailable) {
-        console.log("[NeverminedService] Mineflayer not available, continuing without it");
-      }
-    } catch (error) {
-      console.warn("[NeverminedService] Failed to initialize MineflayerService:", error.message);
-      console.log("[NeverminedService] Continuing without Mineflayer service");
-      this.mineflayerService = null;
-      this.mineflayerAvailable = false;
-    }
-
+    this.telegramService = TelegramService.getInstance();
     if (!this.client.isLoggedIn) {
       throw new Error("Nevermined client not logged in");
     }
-
     console.log(
       "[NeverminedService] Nevermined service started on network:",
       this.client.environment
     );
-
-    // Try to load DIDs from file first
-    const loadedDIDs = await this.loadDIDsFromFile();
-    if (loadedDIDs.success && loadedDIDs.data) {
-      console.log("[NeverminedService] Loaded DIDs from file");
-      this.paymentPlanDID = loadedDIDs.data.paymentPlanDID;
-      this.agentDID = loadedDIDs.data.agentDID;
-      this.testTokenPlanDID = loadedDIDs.data.testTokenPlanDID || null;
-      console.log(
-        "[NeverminedService] Loaded testTokenPlanDID from file:",
-        this.testTokenPlanDID
-      );
-    } else {
-      console.log(`[NeverminedService] Creating new DIDs: ${loadedDIDs.error}`);
-      const botUsername = await this.validateBotInfo();
-
-      // Get DIDs from Intuition
-      console.log(
-        `[NeverminedService] Fetching DIDs from Intuition for ${botUsername}`
-      );
-      const agentDIDs = await getAgentDIDs(botUsername);
-      console.log("[NeverminedService] Intuition returned DIDs:", agentDIDs);
-
-      this.paymentPlanDID = agentDIDs.planDID;
-      this.agentDID = agentDIDs.agentDID;
-      this.testTokenPlanDID = agentDIDs.testTokenPlanDID;
-
-      console.log("[NeverminedService] DIDs assigned:", {
-        paymentPlanDID: this.paymentPlanDID,
-        agentDID: this.agentDID,
-        testTokenPlanDID: this.testTokenPlanDID,
-      });
-
-      // Save DIDs to file for persistence
-      await this.saveDIDsToFile();
-    }
-
+    this.paymentPlanDID = await this.getPaymentPlanDID();
     console.log("[NeverminedService] Payment plan DID: ", this.paymentPlanDID);
+
+    this.agentDID = await this.getAgentDID();
     console.log("[NeverminedService] Agent DID: ", this.agentDID);
-    console.log(
-      "[NeverminedService] Test Token Plan DID: ",
-      this.testTokenPlanDID
-    );
+
+    const planBalance = await this.getPlanCreditBalance();
+    console.log(`[NeverminedService] Plan balance: ${planBalance}`);
 
     await this.client.query.subscribe(this.processQuery(this.client), {
       getPendingEventsOnSubscribe: false,
@@ -194,265 +87,413 @@ export class NeverminedService extends BaseService {
     return this.client;
   }
 
+  /**
+   * Gets or creates a payment plan DID (Decentralized Identifier) for the Nevermined service.
+   *
+   * @returns Promise<string> The payment plan DID
+   * @throws Error if Nevermined service is not started
+   *
+   * @description
+   * This method handles the payment plan DID in the following way:
+   * 1. First checks if a DID exists in environment variables
+   * 2. If not, creates a new payment plan with the following parameters:
+   *    - Name: "PaymentPlan:::[bot_username]"
+   *    - Description: Custom description with bot username
+   *    - Price: 1 USDC (using 6 decimals)
+   *    - Token: USDC on Arbitrum Sepolia testnet
+   *    - Credits: 100 per plan
+   * 3. Saves the new DID to .env file for persistence
+   *
+   * The payment plan is required for the Nevermined agent to process requests
+   * and handle payments from users.
+   *
+   * TODO: Make payment plan details dynamic so agents can set their own terms in the future
+   *
+   * @example
+   * ```typescript
+   * const neverminedService = NeverminedService.getInstance();
+   * const paymentPlanDID = await neverminedService.getPaymentPlanDID();
+   * ```
+   */
   public async getPaymentPlanDID(): Promise<string> {
     if (!this.client) {
       throw new Error("NeverminedService not started");
     }
-
-    // Check if we have a DID in the data directory for this bot
-    const loadedDIDs = await this.loadDIDsFromFile();
-    if (loadedDIDs.success && loadedDIDs.data?.paymentPlanDID) {
-      this.paymentPlanDID = loadedDIDs.data.paymentPlanDID;
-      console.log(
-        "[NeverminedService] Using payment plan DID from data file:",
-        this.paymentPlanDID
-      );
-      return this.paymentPlanDID;
+    if (process.env.NEVERMINED_PAYMENT_PLAN_DID) {
+      this.paymentPlanDID = process.env.NEVERMINED_PAYMENT_PLAN_DID;
+      console.log("Payment plan DID exists: ", this.paymentPlanDID);
+      return process.env.NEVERMINED_PAYMENT_PLAN_DID;
     }
-
-    // Create a new payment plan with a unique name based on bot username and timestamp
     try {
-      console.log("[NeverminedService] Creating new payment plan...");
-      const botUsername = await this.validateBotInfo();
-      const uniqueId = `${botUsername}-${Date.now()}`;
-
+      console.log("Creating payment plan...");
+      const botInfo = await this.telegramService?.getBotInfo();
+      console.log("Bot info: ", botInfo);
       const paymentPlan = await this.client.createCreditsPlan({
-        name: `PaymentPlan:::${uniqueId}`,
-        description: `Payment plan to access the agent ${botUsername}`,
+        name: `PaymentPlan:::${botInfo?.username ?? "<unknown>"}`,
+        description: `Payment plan to access the agent ${botInfo?.username ?? "<unknown>"}`,
         price: parseUnits("1", 6), //1 USDC per plan
-        tokenAddress: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d", //USDC on Arbitrum Sepolia
-        amountOfCredits: 1,
+        tokenAddress: "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d", //USDC on Arbitrum Sepolia, change to mainnet USDC on production
+        amountOfCredits: 100,
       });
-
       console.log("[NeverminedService] Payment plan created:", paymentPlan);
       this.paymentPlanDID = paymentPlan.did;
-
-      // Save to data file
-      await this.saveDIDsToFile();
-
-      return this.paymentPlanDID!;
     } catch (e) {
-      console.error("[NeverminedService] Error creating payment plan:", e);
-      throw e;
+      console.log("[NeverminedService] Error creating payment plan:", e);
     }
+    try {
+      //try saving to .env
+      const __dirname = path.dirname(new URL(import.meta.url).pathname);
+      const envPath = path.join(__dirname, "..", "..", "..", ".env");
+      const envFile = await fs.readFile(envPath, { encoding: "utf-8" });
+      const newEnv = envFile.replace(
+        /NEVERMINED_PAYMENT_PLAN_DID=.*/,
+        `NEVERMINED_PAYMENT_PLAN_DID=${this.paymentPlanDID}`
+      );
+      if (newEnv !== envFile) {
+        await fs.writeFile(envPath, newEnv);
+      } else {
+        await fs.appendFile(
+          envPath,
+          `\nNEVERMINED_PAYMENT_PLAN_DID=${this.paymentPlanDID}`
+        );
+      }
+      console.log(
+        `[NeverminedService] Saved payment plan DID to .env (Location: ${envPath})`
+      );
+    } catch (e) {
+      console.warn("[NeverminedService] Failed to save payment plan to .env");
+    }
+    return this.paymentPlanDID!;
   }
 
+  /**
+   * Gets or creates an agent DID (Decentralized Identifier) for the Nevermined service.
+   *
+   * @returns Promise<string> The agent DID
+   * @throws Error if Nevermined service is not started
+   *
+   * @description
+   * This method handles the agent DID in the following way:
+   * 1. First checks if a DID exists in environment variables
+   * 2. If not, creates a new agent with the following parameters:
+   *    - Name: "Agent:::[bot_username]"
+   *    - Description: Custom description with bot username
+   *    - Plan DID: Uses the payment plan DID from getPaymentPlanDID()
+   *    - Service charge type: "dynamic"
+   *    - Uses AI Hub: true
+   * 3. Saves the new DID to .env file for persistence
+   *
+   * The agent DID is required for the Nevermined service to process requests
+   * and handle interactions with users.
+   *
+   * @example
+   * ```typescript
+   * const neverminedService = NeverminedService.getInstance();
+   * const agentDID = await neverminedService.getAgentDID();
+   * ```
+   */
   public async getAgentDID(): Promise<string> {
     if (!this.client) {
       throw new Error("NeverminedService not started");
     }
-
-    // Check if we have a DID in the data directory for this bot
-    const loadedDIDs = await this.loadDIDsFromFile();
-    if (loadedDIDs.success && loadedDIDs.data?.agentDID) {
-      this.agentDID = loadedDIDs.data.agentDID;
-      console.log(
-        "[NeverminedService] Using agent DID from data file:",
-        this.agentDID
-      );
-      return this.agentDID;
+    if (process.env.NEVERMINED_AGENT_DID) {
+      this.agentDID = process.env.NEVERMINED_AGENT_DID;
+      console.log("Agent DID exists: ", this.agentDID);
+      return process.env.NEVERMINED_AGENT_DID;
     }
-
-    // Create a new agent with a unique name
+    console.log("Creating agent...");
     try {
-      console.log("[NeverminedService] Creating new agent...");
-      const botUsername = await this.validateBotInfo();
-      const uniqueId = `${botUsername}-${Date.now()}`;
+      const botInfo = await this.telegramService?.getBotInfo();
 
       const agent = await this.client.createAgent({
-        name: `Agent:::${uniqueId}`,
-        description: `Agent ${botUsername}`,
+        name: `Agent:::${botInfo?.username ?? "<unknown>"}`,
+        description: `Agent ${botInfo?.username ?? "<unknown>"}`,
         planDID: await this.getPaymentPlanDID(),
-        serviceChargeType: "fixed",
-        amountOfCredits: 1,
+        serviceChargeType: "dynamic",
         usesAIHub: true,
       });
 
       console.log("[NeverminedService] Agent created:", agent);
       this.agentDID = agent.did;
-
-      // Save to data file
-      await this.saveDIDsToFile();
-
-      return this.agentDID!;
     } catch (e) {
-      console.error("[NeverminedService] Error creating agent:", e);
-      throw e;
+      console.log("[NeverminedService] Error creating agent:", e);
     }
+    try {
+      //try saving to .env
+      const __dirname = path.dirname(new URL(import.meta.url).pathname);
+      const envPath = path.join(__dirname, "..", "..", "..", ".env");
+      const envFile = await fs.readFile(envPath, { encoding: "utf-8" });
+      const newEnv = envFile.replace(
+        /NEVERMINED_AGENT_DID=.*/,
+        `NEVERMINED_AGENT_DID=${this.agentDID}`
+      );
+      if (newEnv !== envFile) {
+        await fs.writeFile(envPath, newEnv);
+      } else {
+        await fs.appendFile(envPath, `\nNEVERMINED_AGENT_DID=${this.agentDID}`);
+      }
+      console.log(
+        `[NeverminedService] Saved agent DID to .env (Location: ${envPath})`
+      );
+    } catch (e) {
+      console.warn("[NeverminedService] Failed to save agent to .env");
+    }
+    return this.agentDID!;
   }
 
   private processQuery(payments: Payments) {
     return async (data: AnyType) => {
-      try {
-        const eventData = data;
-        console.log("[NeverminedService] Event data: ", eventData);
+      const eventData = JSON.parse(data);
+      console.log("[NeverminedService] Event data: ", eventData);
+      // await this.telegramService?.bot.api.sendMessage(
+      //   "-4729581369",
+      //   `Event data: ${JSON.stringify(eventData)}`
+      // );
+      const step = (await payments.query.getStep(
+        eventData.step_id
+      )) as NeverminedStep;
+      console.log("[NeverminedService] Step: ", step);
+      await payments.query.logTask({
+        level: "info",
+        task_id: step.task_id,
+        message: `Processing step ${step.name}...`,
+      });
+      switch (step.name) {
+        case FIRST_STEP_NAME: {
+          await payments.query.logTask({
+            level: "info",
+            task_id: step.task_id,
+            message: `Step received ${step.name}, creating the additional steps...`,
+          });
+          console.log("[NeverminedService] Step received ", step);
+          const fetchDataStepId = generateStepId();
+          const encryptDataStepId = generateStepId();
 
-        const step = (await payments.query.getStep(
-          eventData.step_id
-        )) as NeverminedStep;
-        console.log("[NeverminedService] Step: ", step);
-
-        await payments.query.logTask({
-          level: "info",
-          task_id: step.task_id,
-          message: `Processing step ${step.name}...`,
-        });
-
-        const inputQuery = step.input_query;
-        console.log("[NeverminedService] Input query: ", inputQuery);
-
-        switch (step.name) {
-          case FIRST_STEP_NAME: {
-            await payments.query.logTask({
-              level: "info",
+          const steps = [
+            {
+              step_id: fetchDataStepId,
               task_id: step.task_id,
-              message: `Step received ${step.name}, creating the additional steps...`,
-            });
-            console.log("[NeverminedService] Step received ", step);
-            const swapStepId = generateStepId();
-
-            const steps = [
-              {
-                step_id: swapStepId,
-                task_id: step.task_id,
-                name: "swap",
-                is_last: true,
-              },
-            ];
-            console.log("[NeverminedService] Steps to be created: ", steps);
-            const createResult = await payments.query.createSteps(
-              step.task_id,
-              step.did,
-              { steps }
-            ) as unknown as { status: number; data: string; success: boolean };
-              
-            await payments.query.logTask({
+              predecessor: step.step_id, // "fetchData" follows "init"
+              name: "fetchData",
+              is_last: false,
+            },
+            {
+              step_id: encryptDataStepId,
               task_id: step.task_id,
-              level: createResult.success ? "info" : "error",
-              message: createResult.success
+              predecessor: fetchDataStepId, // "encryptData" follows "fetchData"
+              name: "encryptData",
+              is_last: true,
+            },
+          ];
+          console.log("[NeverminedService] Steps to be created: ", steps);
+          const createResult = await payments.query.createSteps(
+            step.did,
+            step.task_id,
+            { steps }
+          );
+
+          await payments.query.logTask({
+            task_id: step.task_id,
+            level: createResult.status === 201 ? "info" : "error",
+            message:
+              createResult.status === 201
                 ? "Steps created successfully."
                 : `Error creating steps: ${JSON.stringify(createResult.data)}`,
-            });
-            // await this.telegramService?.bot.api.sendMessage(
-            //   "-4729581369",
-            //   `Steps created successfully.`
-            // );
+          });
+          // await this.telegramService?.bot.api.sendMessage(
+          //   "-4729581369",
+          //   `Steps created successfully.`
+          // );
 
-            await payments.query.updateStep(step.did, {
-              ...step,
-              step_status: AgentExecutionStatus.Completed,
-              output: step.input_query,
-            });
-            return;
-          }
-
-          case "swap": {
-            const payload = JSON.parse(step.input_query) as {
-              amount: string;
-              from_token: string;
-              from_chain_id: string;
-              to_token: string;
-              to_chain_id: string;
-              sender: string;
-            };
-            await payments.query.logTask({
-              level: "info",
-              task_id: step.task_id,
-              step_id: step.step_id,
-              task_status: AgentExecutionStatus.In_Progress,
-              message: `Data fetched: ${JSON.stringify(payload)}`,
-            });
-
-            console.log(
-              "[NeverminedService] EMBER_ENDPOINT: ",
-              process.env.EMBER_ENDPOINT
-            );
-
-            const client = new EmberGrpcClient(
-              process.env.EMBER_ENDPOINT || "grpc.api.emberai.xyz:50051"
-            );
-
-            const swapTokenRequest = {
-              orderType: OrderType.MARKET_SELL,
-              baseToken: {
-                address: payload.from_token,
-                chainId: payload.from_chain_id,
-              },
-              quoteToken: {
-                address: payload.to_token,
-                chainId: payload.to_chain_id,
-              },
-              amount: payload.amount,
-              recipient: payload.sender,
-            };
-            const response = await client.swapTokens(swapTokenRequest);
-  
-            if (response.status === "ERROR") {
-              console.log(
-                "[NeverminedService] Swap validation failed before transaction creation:",
-                JSON.stringify({
-                  status: response.status,
-                  taskId: step.task_id,
-                  stepId: step.step_id,
-                  request: swapTokenRequest,
-                  response: response,
-                })
-              );
-
-              // early return to avoid transaction creation
-              return;
-            }
-
-            console.log(
-              "[NeverminedService] Ember swap transaction created: ",
-              JSON.stringify(response),
-              step.task_id,
-              step.step_id
-            );
-            await payments.query.updateStep(step.did, {
-              ...step,
-              step_status: AgentExecutionStatus.Completed,
-              output: JSON.stringify(response),
-            });
-            return;
-          }
-          default: {
-            await payments.query.logTask({
-              level: "info",
-              task_id: step.task_id,
-              message: `Unknown step ${step.name}, Skipping...`,
-            });
-            // await this.telegramService?.bot.api.sendMessage(
-            //   "-4729581369",
-            //   `Unknown step ${step.name}, Skipping...`
-            // );
-            return;
-          }
+          await payments.query.updateStep(step.did, {
+            ...step,
+            step_status: AgentExecutionStatus.Completed,
+            output: step.input_query,
+          });
+          return;
         }
-      } catch (error) {
-        console.error("[NeverminedService] Error processing query:", error);
-        const eventData = JSON.parse(data);
-        const step = (await payments.query.getStep(
-          eventData.step_id
-        )) as NeverminedStep;
-        await payments.query.logTask({
-          level: "error",
-          task_id: step.task_id,
-          message: `Error processing query: ${error}`,
-        });
-        await payments.query.updateStep(step.did, {
-          ...step,
-          step_status: AgentExecutionStatus.Failed,
-          output: `Error processing query: ${error}`,
-          is_last: true,
-        });
+
+        case "swap": {
+          const payload = JSON.parse(step.input_query) as {
+            amount: string;
+            from_token: string;
+            from_chain_id: string;
+            to_token: string;
+            to_chain_id: string;
+            sender: string;
+          };
+          await payments.query.logTask({
+            level: "info",
+            task_id: step.task_id,
+            step_id: step.step_id,
+            task_status: AgentExecutionStatus.In_Progress,
+            message: `Data fetched: ${JSON.stringify(payload)}`,
+          });
+
+          console.log(
+            "[NeverminedService] EMBER_ENDPOINT: ",
+            process.env.EMBER_ENDPOINT
+          );
+
+          const client = new EmberGrpcClient(
+            process.env.EMBER_ENDPOINT || "grpc.api.emberai.xyz:50051"
+          );
+
+          const swapTokenRequest = {
+            orderType: OrderType.MARKET_SELL,
+            baseToken: {
+              address: payload.from_token,
+              chainId: payload.from_chain_id,
+            },
+            quoteToken: {
+              address: payload.to_token,
+              chainId: payload.to_chain_id,
+            },
+            amount: payload.amount,
+            recipient: payload.sender,
+          };
+          const response = await client.swapTokens(swapTokenRequest);
+
+          if (response.status === "ERROR") {
+            console.log(
+              "[NeverminedService] Swap validation failed before transaction creation:",
+              JSON.stringify({
+                status: response.status,
+                taskId: step.task_id,
+                stepId: step.step_id,
+                request: swapTokenRequest,
+                response: response,
+              })
+            );
+
+            // early return to avoid transaction creation
+            return;
+          }
+
+          console.log(
+            "[NeverminedService] Ember swap transaction created: ",
+            JSON.stringify(response),
+            step.task_id,
+            step.step_id
+          );
+          await payments.query.updateStep(step.did, {
+            ...step,
+            step_status: AgentExecutionStatus.Completed,
+            output: JSON.stringify(response),
+          });
+          return;
+        }
+
+        case "fetchData": {
+          await payments.query.logTask({
+            level: "info",
+            task_id: step.task_id,
+            step_id: step.step_id,
+            task_status: AgentExecutionStatus.In_Progress,
+            message: `Step received ${step.name}, fetching data...`,
+          });
+          // await this.telegramService?.bot.api.sendMessage(
+          //   "-4729581369",
+          //   `Step received ${step.name}, fetching data...`
+          // );
+          const mockData = step.input_query ?? `step-1-mock-data-${Date.now()}`;
+          await payments.query.logTask({
+            level: "info",
+            task_id: step.task_id,
+            step_id: step.step_id,
+            task_status: AgentExecutionStatus.In_Progress,
+            message: `Data fetched: ${mockData}`,
+          });
+          console.log(
+            "[NeverminedService] Data fetched: ",
+            mockData,
+            step.task_id,
+            step.step_id
+          );
+          await payments.query.updateStep(step.did, {
+            ...step,
+            step_status: AgentExecutionStatus.Completed,
+            output: mockData,
+            cost: 3,
+          });
+          await payments.query.logTask({
+            level: "info",
+            task_id: step.task_id,
+            task_status: AgentExecutionStatus.In_Progress,
+            message: `Step 1 completed, data fetched`,
+          });
+          // await this.telegramService?.bot.api.sendMessage(
+          //   "-4729581369",
+          //   `Step 1 completed, data fetched`
+          // );
+          return;
+        }
+        case "encryptData": {
+          await payments.query.logTask({
+            level: "info",
+            task_id: step.task_id,
+            step_id: step.step_id,
+            task_status: AgentExecutionStatus.In_Progress,
+            message: `Step received ${step.name}, encrypting data...`,
+          });
+          console.log(
+            "[NeverminedService] Step received encrypting data...",
+            step.task_id,
+            step.step_id
+          );
+
+          const encryptedData = this.encryptData(step.input_query);
+
+          await payments.query.logTask({
+            level: "info",
+            task_id: step.task_id,
+            step_id: step.step_id,
+            task_status: AgentExecutionStatus.In_Progress,
+            message: `Data encrypted: ${encryptedData}`,
+          });
+          console.log(
+            "[NeverminedService] Data encrypted: ",
+            encryptedData,
+            step.task_id,
+            step.step_id
+          );
+
+          await payments.query.updateStep(step.did, {
+            ...step,
+            step_status: AgentExecutionStatus.Completed,
+            output: encryptedData,
+            cost: 2,
+            is_last: true,
+          });
+
+          await payments.query.logTask({
+            level: "info",
+            task_id: step.task_id,
+            task_status: AgentExecutionStatus.Completed,
+            message: `Step 2, data fetched and encrypted`,
+          });
+          return;
+        }
+        default: {
+          await payments.query.logTask({
+            level: "info",
+            task_id: step.task_id,
+            message: `Unknown step ${step.name}, Skipping...`,
+          });
+          // await this.telegramService?.bot.api.sendMessage(
+          //   "-4729581369",
+          //   `Unknown step ${step.name}, Skipping...`
+          // );
+          return;
+        }
       }
     };
   }
 
   public async getPlanCreditBalance(
-    planDID: string
-  ): Promise<{ agreementId?: string; balance: bigint }> {
+    //FIXME: Remove after demo, should be dynamic
+    planDID = "did:nv:95933c24a7f3c181b62b2ee91d7b7e6ec0fce5430a0fd19f4cf5c4dc864efb6d"
+  ): Promise<bigint> {
     if (!this.client) {
       throw new Error("NeverminedService not started");
     }
@@ -465,24 +506,48 @@ export class NeverminedService extends BaseService {
       console.log("Subscribed, Agreement: ", agreement);
       const balance = await this.client.getPlanBalance(planDID);
       console.log(`Plan: ${planDID}\nBalance:, ${JSON.stringify(balance)}`);
-      return { agreementId: agreement.agreementId, balance: balance.balance };
+      return balance.balance;
     }
-    return { agreementId: undefined, balance: balance.balance };
+    return balance.balance;
+  }
+
+  public async purchasePlan(
+    //FIXME: Remove after demo, should be dynamic
+    planDID: string
+  ): Promise<bigint> {
+    if (!this.client) {
+      throw new Error("NeverminedService not started");
+    }
+    const balance = await this.client.getPlanBalance(planDID);
+    console.log(`Plan: ${planDID}\nBalance: ${JSON.stringify(balance)}`);
+    if (!balance.isSubscriptor || balance.balance === BigInt(0)) {
+      console.log("Not subscribed to plan, or plan exhausted: ", planDID);
+      console.log("Subscribing...");
+      const agreement = await this.client.orderPlan(planDID);
+      console.log("Subscribed, Agreement: ", agreement);
+      const balance = await this.client.getPlanBalance(planDID);
+      console.log(`Plan: ${planDID}\nBalance:, ${JSON.stringify(balance)}`);
+      return balance.balance;
+    } else {
+      console.log("Already subscribed to plan: ", planDID);
+      return balance.balance;
+    }
   }
 
   public async submitTask(
-    agentDID: string,
-    planDID: string,
-    query: string,
+    //FIXME: Remove after demo, should be dynamic
+    agentDID = "did:nv:ed26319e8551d5578b09563c3261df7cd4e3b1f4130434d04478a036c29e4403",
+    planDID = "did:nv:95933c24a7f3c181b62b2ee91d7b7e6ec0fce5430a0fd19f4cf5c4dc864efb6d",
+    query = `hello-demo-agent-${Date.now()}`,
     callback?: (data: string) => Promise<void>
-  ): Promise<CreateTaskResultDto | undefined> {
+  ): Promise<void> {
     if (!this.client) {
       throw new Error("NeverminedService not started");
     }
     console.log(
       `[NeverminedService] Submitting task: agentDID: ${agentDID}, planDID: ${planDID}, query: ${query}`
     );
-    const { balance } = await this.getPlanCreditBalance(planDID);
+    const balance = await this.getPlanCreditBalance(planDID);
     console.log(`Plan: ${planDID}\nBalance: ${JSON.stringify(balance)}`);
     if (balance <= BigInt(0)) {
       throw new Error("Insufficient balance");
@@ -499,205 +564,111 @@ export class NeverminedService extends BaseService {
         const parsedData = JSON.parse(data) as NeverminedTask;
         console.dir(parsedData, { depth: null });
       });
-    const { success, data, error } = await this.client.query.createTask(
+    const { data } = await this.client.query.createTask(
       agentDID,
       {
-        name: "harvest",
-        input_query: query,
-        //@ts-expect-error custom input
-        query: query,
+        query,
       },
       accessConfig,
       taskCallback
     );
-    if (!success) {
-      console.error("Failed to create task", error);
-      throw new Error("Failed to create task");
-    }
     console.log(`Task sent to agent: ${JSON.stringify(data)}`);
     return data;
   }
 
-  public async submitTaskWithTestToken(
+  public async submitTaskDynamically(
     agentDID: string,
-    query: string,
-    callback?: (data: string) => Promise<void>
-  ): Promise<CreateTaskResultDto | undefined> {
+    planDID: string,
+    query = `hello-demo-agent-${Date.now()}`,
+    callback?: (data: string) => Promise<void>,
+    resultCallback?: (result: {
+      task_id: string;
+      task_status: string;
+      output: string;
+      input_query: string;
+      cost: number;
+    }) => Promise<void>
+  ): Promise<void> {
     if (!this.client) {
       throw new Error("NeverminedService not started");
     }
-
-    if (!this.testTokenPlanDID) {
-      console.error("[NeverminedService] No test token plan DID available");
-      throw new Error("No test token plan DID available");
-    }
-
     console.log(
-      `[NeverminedService] Submitting task with test token plan: ${this.testTokenPlanDID}`
+      `[NeverminedService] Submitting task: agentDID: ${agentDID}, planDID: ${planDID}, query: ${query}`
     );
-    return this.submitTask(agentDID, this.testTokenPlanDID, query, callback);
-  }
-
-  private async saveDIDsToFile(): Promise<void> {
-    try {
-      const dataDir = path.resolve(process.cwd(), "data");
-      await fs.mkdir(dataDir, { recursive: true });
-      const filePath = path.join(dataDir, "nevermined-credentials.json");
-
-      // Get bot username to use as key
-      const botUsername = await this.validateBotInfo();
-
-      // Try to read existing file first
-      let existingData: Record<
-        string,
-        {
-          agentDID: string;
-          paymentPlanDID: string;
-          testTokenPlanDID?: string;
-          role: string;
-        }
-      > = {};
-      try {
-        const existingContent = await fs.readFile(filePath, "utf8");
-        existingData = JSON.parse(existingContent);
-      } catch (error) {
-        // File doesn't exist or is invalid, start with empty object
-      }
-
-      // Determine the role
-      let role = "merchant";
-      if (this.mineflayerAvailable && this.mineflayerService) {
-        const botInfo = await this.mineflayerService.getBotInfo();
-        role = botInfo?.role ?? "merchant";
-      }
-
-      // Update with this bot's DIDs
-      existingData[botUsername] = {
-        agentDID: this.agentDID!,
-        paymentPlanDID: this.paymentPlanDID!,
-        ...(this.testTokenPlanDID && {
-          testTokenPlanDID: this.testTokenPlanDID,
-        }),
-        role,
-      };
-
-      // Write back to file
-      await fs.writeFile(
-        filePath,
-        JSON.stringify(existingData, null, 2),
-        "utf8"
-      );
-      console.log(
-        `[NeverminedService] Saved DIDs for ${botUsername} to ${filePath}`
-      );
-    } catch (error) {
-      console.error("[NeverminedService] Error saving DIDs to file:", error);
+    const balance = await this.getPlanCreditBalance(planDID);
+    console.log(`Plan: ${planDID}\nBalance: ${JSON.stringify(balance)}`);
+    if (balance <= BigInt(0)) {
+      throw new Error("Insufficient balance");
     }
-  }
+    const accessConfig =
+      await this.client.query.getServiceAccessConfig(agentDID);
+    console.log(
+      `[NeverminedService] Access config: ${JSON.stringify(accessConfig)}`
+    );
+    const taskCallback =
+      callback ??
+      (async (data: string) => {
+        console.log(`Received data:`);
+        const parsedData = JSON.parse(data) as NeverminedTask;
 
-  private async loadDIDsFromFile(): Promise<DIDsResult> {
-    try {
-      // Get bot username but don't throw if validation fails
-      let botUsername: string;
-      try {
-        botUsername = await this.validateBotInfo();
-      } catch (error) {
-        return {
-          success: false,
-          error: `Bot validation failed: ${error.message}`,
-        };
-      }
+        if (parsedData.task_status === "Completed") {
+          const result = (await this.client?.query.getTaskWithSteps(
+            agentDID,
+            parsedData.task_id,
+            accessConfig
+          )) || {
+            output: "No result",
+          };
 
-      const dataDir = path.resolve(process.cwd(), "data");
-      console.log("[NeverminedService] Data directory:", dataDir);
-      const filePath = path.join(dataDir, "nevermined-credentials.json");
+          // Safely handle the Axios response
+          const resultData = "data" in result ? result.data : result;
+          console.log("Task results:", Object.keys(resultData));
 
-      // Check if file exists
-      try {
-        await fs.access(filePath);
-      } catch (error) {
-        return {
-          success: false,
-          error: "Credentials file not found",
-        };
-      }
+          const output = {
+            task_id: resultData.task.task_id,
+            task_status: resultData.task.task_status,
+            output: resultData.task.output,
+            input_query: resultData.task.input_query,
+            cost: resultData.task.cost,
+          };
 
-      // Read and parse file
-      const fileContent = await fs.readFile(filePath, "utf8");
-      const allData = JSON.parse(fileContent);
-
-      // Get this bot's DIDs
-      const botData = allData[botUsername];
-      if (!botData || !botData.agentDID || !botData.paymentPlanDID) {
-        return {
-          success: false,
-          error: `No valid DIDs found for bot ${botUsername}`,
-        };
-      }
-
-      console.log(`[NeverminedService] Found DIDs for bot ${botUsername}`);
-      return {
-        success: true,
-        data: {
-          agentDID: botData.agentDID,
-          paymentPlanDID: botData.paymentPlanDID,
-          testTokenPlanDID: botData.testTokenPlanDID,
-        },
-      };
-    } catch (error) {
-      return {
-        success: false,
-        error: `Unexpected error: ${error.message}`,
-      };
-    }
-  }
-
-  public async checkHealth(): Promise<{ healthy: boolean; details: string }> {
-    try {
-      // Check if client is initialized and logged in
-      if (!this.client || !this.client.isLoggedIn) {
-        return {
-          healthy: false,
-          details: "Nevermined client not initialized or not logged in",
-        };
-      }
-
-      // Check if DIDs are loaded
-      if (!this.paymentPlanDID || !this.agentDID) {
-        return {
-          healthy: false,
-          details: "DIDs not properly loaded",
-        };
-      }
-
-      // Get bot information, but don't fail if Mineflayer is unavailable
-      let botDetails = "Mineflayer unavailable";
-      if (this.mineflayerAvailable && this.mineflayerService) {
-        try {
-          const botInfo = await this.mineflayerService.getBotInfo();
-          if (botInfo && botInfo.username && botInfo.username !== "unknown") {
-            botDetails = `Bot: ${botInfo.username}`;
+          // Call the resultCallback if provided
+          if (resultCallback) {
+            await resultCallback(output);
           }
-        } catch (error) {
-          botDetails = `Mineflayer error: ${error.message}`;
         }
-      } else {
-        botDetails = `Bot: ${process.env.BOT_USERNAME || 'unknown'} (from env)`;
-      }
 
-      return {
-        healthy: true,
-        details: `Service healthy - ${botDetails}, PaymentPlanDID: ${this.paymentPlanDID}, AgentDID: ${this.agentDID}${
-          this.testTokenPlanDID
-            ? `, TestTokenPlanDID: ${this.testTokenPlanDID}`
-            : ""
-        }`,
-      };
-    } catch (error) {
-      return {
-        healthy: false,
-        details: `Health check failed: ${error.message}`,
-      };
-    }
+        console.dir(parsedData, { depth: null });
+      });
+    const { data } = await this.client.query.createTask(
+      agentDID,
+      {
+        query,
+      },
+      accessConfig,
+      taskCallback
+    );
+    console.log(`Task sent to agent: ${JSON.stringify(data)}`);
+    return data;
+  }
+
+  /**
+   * Encrypts data using a simple hex encoding
+   * @param data - The data to encrypt
+   * @returns The encrypted data in hex format
+   */
+  private encryptData(data: string): string {
+    return Buffer.from(data, "utf-8").toString("hex");
+  }
+
+  /**
+   * Decrypts hex encoded data back to original string
+   * @internal - Reserved for future use
+   * @param encryptedData - The hex encoded data to decrypt
+   * @returns The decrypted data as string
+   */
+  // @ts-expect-error Method will be used in future implementation
+  private decryptData(encryptedData: string): string {
+    return Buffer.from(encryptedData, "hex").toString("utf-8");
   }
 }
