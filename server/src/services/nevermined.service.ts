@@ -615,8 +615,9 @@ export class NeverminedService extends BaseService {
       (async (event: TaskEvent) => {
         console.log(`Received data:`);
         const parsedData = event as NeverminedTask;
+        console.log(parsedData);
 
-        if (parsedData.task_status === "Completed") {
+        if (parsedData.task_status === AgentExecutionStatus.Completed) {
           const result: FullTaskDto =
             (await this.client?.query.getTaskWithSteps(
               agentDID,
