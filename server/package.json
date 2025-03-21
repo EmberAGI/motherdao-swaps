@@ -25,7 +25,6 @@
     "@grpc/grpc-js": "^1.13.0",
     "@grpc/proto-loader": "^0.7.13",
     "@nevermined-io/payments": "0.9.3",
-    "@emberai/sdk-typescript": "0.3.0-beta.5",
     "@ngrok/ngrok": "^1.4.1",
     "@solana/web3.js": "^1.98.0",
     "@useorbis/db-sdk": "0.0.60-alpha",
