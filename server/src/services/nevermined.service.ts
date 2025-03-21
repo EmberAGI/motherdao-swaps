@@ -16,7 +16,7 @@ import * as fs from "fs/promises";
 import { AnyType } from "../utils.js";
 import { getAgentDIDs } from "../utils/Intuition/queries.js";
 import { MineflayerService } from "./mineflayer.service.js";
-import { EmberGrpcClient } from "@emberai/sdk-typescript";
+import { EmberGrpcClient, OrderType } from "@emberai/sdk-typescript";
 
 //FIXME: Remove once Nevermined SDK is updated
 interface NeverminedStep extends Step {
@@ -326,10 +326,10 @@ export class NeverminedService extends BaseService {
             ];
             console.log("[NeverminedService] Steps to be created: ", steps);
             const createResult = await payments.query.createSteps(
-              step.did,
               step.task_id,
+              step.did,
               { steps }
-            ) as unknown as { status: number; data: string };
+            ) as unknown as { status: number; data: string; success: boolean };
               
             await payments.query.logTask({
               task_id: step.task_id,
@@ -378,7 +378,7 @@ export class NeverminedService extends BaseService {
             );
 
             const swapTokenRequest = {
-              orderType: "MARKET_BUY",
+              orderType: OrderType.MARKET_BUY,
               baseToken: {
                 address: payload.from_token,
                 chainId: payload.from_chain_id,
