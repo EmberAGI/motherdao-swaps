@@ -329,8 +329,8 @@ export class NeverminedService extends BaseService {
               step.did,
               step.task_id,
               { steps }
-            );
-
+            ) as unknown as { status: number; data: string };
+              
             await payments.query.logTask({
               task_id: step.task_id,
               level: createResult.success ? "info" : "error",
@@ -391,8 +391,8 @@ export class NeverminedService extends BaseService {
               recipient: payload.sender,
             };
             const response = await client.swapTokens(swapTokenRequest);
-
-            if (response.status === 2) {
+  
+            if (response.status === "ERROR") {
               console.log(
                 "[NeverminedService] Swap validation failed before transaction creation:",
                 JSON.stringify({
