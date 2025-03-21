@@ -309,8 +309,7 @@ export class NeverminedService extends BaseService {
           //   "-4729581369",
           //   `Steps created successfully.`
           // );
-
-          await payments.query.updateStep(step.did, {
+          await this.client!.query.updateStep(step.did, {
             ...step,
             step_status: AgentExecutionStatus.Completed,
             output: step.input_query,
