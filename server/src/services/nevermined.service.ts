@@ -585,7 +585,6 @@ export class NeverminedService extends BaseService {
     agentDID: string,
     planDID: string,
     query = `hello-demo-agent-${Date.now()}`,
-    callback?: (data: TaskEvent) => Promise<void>,
     resultCallback?: (result: {
       task_id: string;
       task_status: string;
@@ -610,43 +609,37 @@ export class NeverminedService extends BaseService {
     console.log(
       `[NeverminedService] Access config: ${JSON.stringify(accessConfig)}`
     );
-    const taskCallback =
-      callback ??
-      (async (event: TaskEvent) => {
-        console.log(`Received data:`);
-        const parsedData = event as NeverminedTask;
-        console.log(parsedData);
+    const taskCallback = async (event: TaskEvent) => {
+      console.log(`Received data:`);
+      const parsedData = event as NeverminedTask;
+      console.dir(parsedData, { depth: null });
 
-        if (parsedData.task_status === AgentExecutionStatus.Completed) {
-          const result: FullTaskDto =
-            (await this.client?.query.getTaskWithSteps(
-              agentDID,
-              parsedData.task_id,
-              accessConfig
-            )) ||
-            (() => {
-              throw new Error("getTaskWithSteps did not return anything");
-            })();
+      const result: FullTaskDto =
+        (await this.client?.query.getTaskWithSteps(
+          agentDID,
+          parsedData.task_id,
+          accessConfig
+        )) ||
+        (() => {
+          throw new Error("getTaskWithSteps did not return anything");
+        })();
 
-          // Safely handle the Axios response
-          console.log("Task results:", result);
+      // Safely handle the Axios response
+      console.log("Task results:", result);
 
-          const output = {
-            task_id: result.task.task_id,
-            task_status: result.task.task_status,
-            output: result.task.output,
-            input_query: result.task.input_query,
-            cost: result.task.cost,
-          };
+      const output = {
+        task_id: result.task.task_id,
+        task_status: result.task.task_status,
+        output: result.task.output,
+        input_query: result.task.input_query,
+        cost: result.task.cost,
+      };
 
-          // Call the resultCallback if provided
-          if (resultCallback) {
-            await resultCallback(output);
-          }
-        }
-
-        console.dir(parsedData, { depth: null });
-      });
+      // Call the resultCallback if provided
+      if (resultCallback) {
+        await resultCallback(output);
+      }
+    };
     const { data } = await this.client.query.createTask(
       agentDID,
       {

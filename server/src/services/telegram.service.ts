@@ -345,7 +345,6 @@ export class TelegramService extends BaseService {
             agentDID,
             planDID,
             query,
-            undefined,
             async (result) => {
               await ctx.reply(
                 `🤖 Task Results:\n\n` +
