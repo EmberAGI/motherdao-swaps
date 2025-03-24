@@ -621,7 +621,7 @@ export class NeverminedService extends BaseService {
       `[NeverminedService] Access config: ${JSON.stringify(accessConfig)}`
     );
 
-    this.resultCallback = resultCallback;
+    if (resultCallback) this.resultCallback = resultCallback;
 
     const taskCallback = async (event: TaskEvent) => {
       console.log(`Received data:`);
