@@ -288,7 +288,6 @@ export class NeverminedService extends BaseService {
               task_id: step.task_id,
               predecessor: step.step_id,
               name: "swap",
-              is_last: true,
             },
           ];
           console.log("[NeverminedService] Steps to be created: ", steps);
@@ -386,6 +385,7 @@ export class NeverminedService extends BaseService {
             ...step,
             step_status: AgentExecutionStatus.Completed,
             output: JSON.stringify(response),
+            is_last: true,
           });
           return;
         }
