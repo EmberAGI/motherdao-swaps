@@ -44,6 +44,13 @@ export class NeverminedService extends BaseService {
   private agentDID: string | null = null;
   private static instance: NeverminedService;
   private telegramService: TelegramService | null = null;
+  private resultCallback:
+    | ((result: {
+        output: string;
+        input_query: string;
+        cost: number;
+      }) => Promise<void>)
+    | null = null;
   constructor() {
     super();
   }
@@ -387,6 +394,13 @@ export class NeverminedService extends BaseService {
             output: JSON.stringify(response),
             is_last: true,
           });
+
+          await this.resultCallback!({
+            output:
+              "Ember swap transaction created: " + JSON.stringify(response),
+            input_query: "",
+            cost: step.cost || 0,
+          });
           return;
         }
 
@@ -585,8 +599,6 @@ export class NeverminedService extends BaseService {
     planDID: string,
     query = `hello-demo-agent-${Date.now()}`,
     resultCallback?: (result: {
-      task_id: string;
-      task_status: string;
       output: string;
       input_query: string;
       cost: number;
@@ -608,6 +620,9 @@ export class NeverminedService extends BaseService {
     console.log(
       `[NeverminedService] Access config: ${JSON.stringify(accessConfig)}`
     );
+
+    this.resultCallback = resultCallback;
+
     const taskCallback = async (event: TaskEvent) => {
       console.log(`Received data:`);
       const parsedData = event as NeverminedTask;
